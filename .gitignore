@@ -48,6 +48,7 @@ pnpm-debug.log*
 # 本地运行配置（不要提交）
 config.yaml
 config/config.yaml
+!backend/config.yaml
 
 # ===================
 # IDE / 编辑器
