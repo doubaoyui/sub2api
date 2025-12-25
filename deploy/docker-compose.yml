@@ -99,6 +99,8 @@ services:
     image: postgres:18-alpine
     container_name: sub2api-postgres
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -122,6 +124,8 @@ services:
     image: redis:7-alpine
     container_name: sub2api-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"    
     volumes:
       - redis_data:/data
     command: >

@@ -44,6 +44,10 @@ pnpm-debug.log*
 *.env
 !.env.example
 
+# 本地运行配置（不要提交）
+config.yaml
+config/config.yaml
+
 # ===================
 # IDE / 编辑器
 # ===================
