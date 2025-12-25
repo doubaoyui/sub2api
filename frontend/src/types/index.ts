@@ -53,6 +53,7 @@ export interface PublicSettings {
   site_subtitle: string;
   api_base_url: string;
   contact_info: string;
+  doc_url: string;
   version: string;
 }
 
@@ -316,8 +317,10 @@ export interface Account {
   platform: AccountPlatform;
   type: AccountType;
   credentials?: Record<string, unknown>;
+  extra?: CodexUsageSnapshot & Record<string, unknown>; // Extra fields including Codex usage
   proxy_id: number | null;
   concurrency: number;
+  current_concurrency?: number; // Real-time concurrency count from Redis
   priority: number;
   status: 'active' | 'inactive' | 'error';
   error_message: string | null;
@@ -359,6 +362,18 @@ export interface AccountUsageInfo {
   five_hour: UsageProgress | null;
   seven_day: UsageProgress | null;
   seven_day_sonnet: UsageProgress | null;
+}
+
+// OpenAI Codex usage snapshot (from response headers)
+export interface CodexUsageSnapshot {
+  codex_primary_used_percent?: number;        // Weekly limit usage percentage
+  codex_primary_reset_after_seconds?: number; // Seconds until weekly reset
+  codex_primary_window_minutes?: number;      // Weekly window in minutes
+  codex_secondary_used_percent?: number;      // 5h limit usage percentage
+  codex_secondary_reset_after_seconds?: number; // Seconds until 5h reset
+  codex_secondary_window_minutes?: number;    // 5h window in minutes
+  codex_primary_over_secondary_percent?: number; // Overflow ratio
+  codex_usage_updated_at?: string;            // Last update timestamp
 }
 
 export interface CreateAccountRequest {
@@ -504,6 +519,10 @@ export interface DashboardStats {
   // 系统运行统计
   average_duration_ms: number;  // 平均响应时间
   uptime: number;               // 系统运行时间(秒)
+
+  // 性能指标
+  rpm: number;  // 近5分钟平均每分钟请求数
+  tpm: number;  // 近5分钟平均每分钟Token数
 }
 
 export interface UsageStatsResponse {

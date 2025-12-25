@@ -1,8 +1,8 @@
 package service
 
 import (
-	"sub2api/internal/config"
-	"sub2api/internal/service/ports"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service/ports"
 
 	"github.com/google/wire"
 )
@@ -56,6 +56,7 @@ var ProviderSet = wire.NewSet(
 	NewProxyService,
 	NewRedeemService,
 	NewUsageService,
+	NewDashboardService,
 	ProvidePricingService,
 	NewBillingService,
 	NewBillingCacheService,
@@ -74,6 +75,7 @@ var ProviderSet = wire.NewSet(
 	NewSubscriptionService,
 	NewConcurrencyService,
 	NewIdentityService,
+	NewCRSSyncService,
 	ProvideUpdateService,
 	ProvideTokenRefreshService,
 

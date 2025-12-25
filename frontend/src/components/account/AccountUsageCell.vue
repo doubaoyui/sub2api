@@ -1,24 +1,27 @@
 <template>
   <div v-if="showUsageWindows">
-    <!-- Anthropic OAuth accounts: fetch real usage data -->
-    <template v-if="account.platform === 'anthropic' && account.type === 'oauth'">
+    <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
+    <template v-if="account.platform === 'anthropic' && (account.type === 'oauth' || account.type === 'setup-token')">
       <!-- Loading state -->
       <div v-if="loading" class="space-y-1.5">
+        <!-- OAuth: 3 rows, Setup Token: 1 row -->
         <div class="flex items-center gap-1">
           <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
           <div class="w-8 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
           <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
         </div>
-        <div class="flex items-center gap-1">
-          <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-          <div class="w-8 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
-          <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-        </div>
-        <div class="flex items-center gap-1">
-          <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-          <div class="w-8 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
-          <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-        </div>
+        <template v-if="account.type === 'oauth'">
+          <div class="flex items-center gap-1">
+            <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+            <div class="w-8 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+            <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+          <div class="flex items-center gap-1">
+            <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+            <div class="w-8 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+            <div class="w-[32px] h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+        </template>
       </div>
 
       <!-- Error state -->
@@ -38,7 +41,7 @@
           color="indigo"
         />
 
-        <!-- 7d Window -->
+        <!-- 7d Window (OAuth only) -->
         <UsageProgressBar
           v-if="usageInfo.seven_day"
           label="7d"
@@ -47,7 +50,7 @@
           color="emerald"
         />
 
-        <!-- 7d Sonnet Window -->
+        <!-- 7d Sonnet Window (OAuth only) -->
         <UsageProgressBar
           v-if="usageInfo.seven_day_sonnet"
           label="7d S"
@@ -63,12 +66,31 @@
       </div>
     </template>
 
-    <!-- Anthropic Setup Token accounts: show time-based window progress -->
-    <template v-else-if="account.platform === 'anthropic' && account.type === 'setup-token'">
-      <SetupTokenTimeWindow :account="account" />
+    <!-- OpenAI OAuth accounts: show Codex usage from extra field -->
+    <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
+      <div v-if="hasCodexUsage" class="space-y-1">
+        <!-- 5h Window (Secondary) -->
+        <UsageProgressBar
+          v-if="codexSecondaryUsedPercent !== null"
+          label="5h"
+          :utilization="codexSecondaryUsedPercent"
+          :resets-at="codexSecondaryResetAt"
+          color="indigo"
+        />
+
+        <!-- Weekly Window (Primary) -->
+        <UsageProgressBar
+          v-if="codexPrimaryUsedPercent !== null"
+          label="7d"
+          :utilization="codexPrimaryUsedPercent"
+          :resets-at="codexPrimaryResetAt"
+          color="emerald"
+        />
+      </div>
+      <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
-    <!-- OpenAI accounts: no usage window API, show dash -->
+    <!-- Other accounts: no usage window -->
     <template v-else>
       <div class="text-xs text-gray-400">-</div>
     </template>
@@ -85,7 +107,6 @@ import { ref, computed, onMounted } from 'vue'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo } from '@/types'
 import UsageProgressBar from './UsageProgressBar.vue'
-import SetupTokenTimeWindow from './SetupTokenTimeWindow.vue'
 
 const props = defineProps<{
   account: Account
@@ -100,10 +121,46 @@ const showUsageWindows = computed(() =>
   props.account.type === 'oauth' || props.account.type === 'setup-token'
 )
 
+// OpenAI Codex usage computed properties
+const hasCodexUsage = computed(() => {
+  const extra = props.account.extra
+  return extra && (
+    extra.codex_primary_used_percent !== undefined ||
+    extra.codex_secondary_used_percent !== undefined
+  )
+})
+
+const codexPrimaryUsedPercent = computed(() => {
+  const extra = props.account.extra
+  if (!extra || extra.codex_primary_used_percent === undefined) return null
+  return extra.codex_primary_used_percent
+})
+
+const codexSecondaryUsedPercent = computed(() => {
+  const extra = props.account.extra
+  if (!extra || extra.codex_secondary_used_percent === undefined) return null
+  return extra.codex_secondary_used_percent
+})
+
+const codexPrimaryResetAt = computed(() => {
+  const extra = props.account.extra
+  if (!extra || extra.codex_primary_reset_after_seconds === undefined) return null
+  const resetTime = new Date(Date.now() + extra.codex_primary_reset_after_seconds * 1000)
+  return resetTime.toISOString()
+})
+
+const codexSecondaryResetAt = computed(() => {
+  const extra = props.account.extra
+  if (!extra || extra.codex_secondary_reset_after_seconds === undefined) return null
+  const resetTime = new Date(Date.now() + extra.codex_secondary_reset_after_seconds * 1000)
+  return resetTime.toISOString()
+})
+
 const loadUsage = async () => {
-  // Only fetch usage for Anthropic OAuth accounts
-  // OpenAI doesn't have a usage window API - usage is updated from response headers during forwarding
-  if (props.account.platform !== 'anthropic' || props.account.type !== 'oauth') return
+  // Fetch usage for Anthropic OAuth and Setup Token accounts
+  // OpenAI usage comes from account.extra field (updated during forwarding)
+  if (props.account.platform !== 'anthropic') return
+  if (props.account.type !== 'oauth' && props.account.type !== 'setup-token') return
 
   loading.value = true
   error.value = null
