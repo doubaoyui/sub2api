@@ -2,21 +2,37 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
-
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 var (
-	ErrUserNotFound      = errors.New("user not found")
-	ErrPasswordIncorrect = errors.New("current password is incorrect")
-	ErrInsufficientPerms = errors.New("insufficient permissions")
+	ErrUserNotFound      = infraerrors.NotFound("USER_NOT_FOUND", "user not found")
+	ErrPasswordIncorrect = infraerrors.BadRequest("PASSWORD_INCORRECT", "current password is incorrect")
+	ErrInsufficientPerms = infraerrors.Forbidden("INSUFFICIENT_PERMISSIONS", "insufficient permissions")
 )
+
+type UserRepository interface {
+	Create(ctx context.Context, user *model.User) error
+	GetByID(ctx context.Context, id int64) (*model.User, error)
+	GetByEmail(ctx context.Context, email string) (*model.User, error)
+	GetFirstAdmin(ctx context.Context) (*model.User, error)
+	Update(ctx context.Context, user *model.User) error
+	Delete(ctx context.Context, id int64) error
+
+	List(ctx context.Context, params pagination.PaginationParams) ([]model.User, *pagination.PaginationResult, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, status, role, search string) ([]model.User, *pagination.PaginationResult, error)
+
+	UpdateBalance(ctx context.Context, id int64, amount float64) error
+	DeductBalance(ctx context.Context, id int64, amount float64) error
+	UpdateConcurrency(ctx context.Context, id int64, amount int) error
+	ExistsByEmail(ctx context.Context, email string) (bool, error)
+	RemoveGroupFromAllowedGroups(ctx context.Context, groupID int64) (int64, error)
+}
 
 // UpdateProfileRequest 更新用户资料请求
 type UpdateProfileRequest struct {
@@ -34,11 +50,11 @@ type ChangePasswordRequest struct {
 
 // UserService 用户服务
 type UserService struct {
-	userRepo ports.UserRepository
+	userRepo UserRepository
 }
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo ports.UserRepository) *UserService {
+func NewUserService(userRepo UserRepository) *UserService {
 	return &UserService{
 		userRepo: userRepo,
 	}
@@ -48,9 +64,6 @@ func NewUserService(userRepo ports.UserRepository) *UserService {
 func (s *UserService) GetProfile(ctx context.Context, userID int64) (*model.User, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
-		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	return user, nil
@@ -60,9 +73,6 @@ func (s *UserService) GetProfile(ctx context.Context, userID int64) (*model.User
 func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*model.User, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
-		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
@@ -102,9 +112,6 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 func (s *UserService) ChangePassword(ctx context.Context, userID int64, req ChangePasswordRequest) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrUserNotFound
-		}
 		return fmt.Errorf("get user: %w", err)
 	}
 
@@ -132,9 +139,6 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req Chan
 func (s *UserService) GetByID(ctx context.Context, id int64) (*model.User, error) {
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
-		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	return user, nil
@@ -161,9 +165,6 @@ func (s *UserService) UpdateBalance(ctx context.Context, userID int64, amount fl
 func (s *UserService) UpdateStatus(ctx context.Context, userID int64, status string) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrUserNotFound
-		}
 		return fmt.Errorf("get user: %w", err)
 	}
 

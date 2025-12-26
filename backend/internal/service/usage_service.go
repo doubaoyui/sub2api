@@ -2,19 +2,17 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
-	"time"
-
-	"gorm.io/gorm"
 )
 
 var (
-	ErrUsageLogNotFound = errors.New("usage log not found")
+	ErrUsageLogNotFound = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
 )
 
 // CreateUsageLogRequest 创建使用日志请求
@@ -55,12 +53,12 @@ type UsageStats struct {
 
 // UsageService 使用统计服务
 type UsageService struct {
-	usageRepo ports.UsageLogRepository
-	userRepo  ports.UserRepository
+	usageRepo UsageLogRepository
+	userRepo  UserRepository
 }
 
 // NewUsageService 创建使用统计服务实例
-func NewUsageService(usageRepo ports.UsageLogRepository, userRepo ports.UserRepository) *UsageService {
+func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository) *UsageService {
 	return &UsageService{
 		usageRepo: usageRepo,
 		userRepo:  userRepo,
@@ -72,9 +70,6 @@ func (s *UsageService) Create(ctx context.Context, req CreateUsageLogRequest) (*
 	// 验证用户存在
 	_, err := s.userRepo.GetByID(ctx, req.UserID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
-		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
@@ -120,9 +115,6 @@ func (s *UsageService) Create(ctx context.Context, req CreateUsageLogRequest) (*
 func (s *UsageService) GetByID(ctx context.Context, id int64) (*model.UsageLog, error) {
 	log, err := s.usageRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUsageLogNotFound
-		}
 		return nil, fmt.Errorf("get usage log: %w", err)
 	}
 	return log, nil

@@ -2,19 +2,34 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
-
-	"gorm.io/gorm"
 )
 
 var (
-	ErrGroupNotFound = errors.New("group not found")
-	ErrGroupExists   = errors.New("group name already exists")
+	ErrGroupNotFound = infraerrors.NotFound("GROUP_NOT_FOUND", "group not found")
+	ErrGroupExists   = infraerrors.Conflict("GROUP_EXISTS", "group name already exists")
 )
+
+type GroupRepository interface {
+	Create(ctx context.Context, group *model.Group) error
+	GetByID(ctx context.Context, id int64) (*model.Group, error)
+	Update(ctx context.Context, group *model.Group) error
+	Delete(ctx context.Context, id int64) error
+	DeleteCascade(ctx context.Context, id int64) ([]int64, error)
+
+	List(ctx context.Context, params pagination.PaginationParams) ([]model.Group, *pagination.PaginationResult, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, status string, isExclusive *bool) ([]model.Group, *pagination.PaginationResult, error)
+	ListActive(ctx context.Context) ([]model.Group, error)
+	ListActiveByPlatform(ctx context.Context, platform string) ([]model.Group, error)
+
+	ExistsByName(ctx context.Context, name string) (bool, error)
+	GetAccountCount(ctx context.Context, groupID int64) (int64, error)
+	DeleteAccountGroupsByGroupID(ctx context.Context, groupID int64) (int64, error)
+}
 
 // CreateGroupRequest 创建分组请求
 type CreateGroupRequest struct {
@@ -35,11 +50,11 @@ type UpdateGroupRequest struct {
 
 // GroupService 分组管理服务
 type GroupService struct {
-	groupRepo ports.GroupRepository
+	groupRepo GroupRepository
 }
 
 // NewGroupService 创建分组服务实例
-func NewGroupService(groupRepo ports.GroupRepository) *GroupService {
+func NewGroupService(groupRepo GroupRepository) *GroupService {
 	return &GroupService{
 		groupRepo: groupRepo,
 	}
@@ -76,9 +91,6 @@ func (s *GroupService) Create(ctx context.Context, req CreateGroupRequest) (*mod
 func (s *GroupService) GetByID(ctx context.Context, id int64) (*model.Group, error) {
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrGroupNotFound
-		}
 		return nil, fmt.Errorf("get group: %w", err)
 	}
 	return group, nil
@@ -106,9 +118,6 @@ func (s *GroupService) ListActive(ctx context.Context) ([]model.Group, error) {
 func (s *GroupService) Update(ctx context.Context, id int64, req UpdateGroupRequest) (*model.Group, error) {
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrGroupNotFound
-		}
 		return nil, fmt.Errorf("get group: %w", err)
 	}
 
@@ -153,9 +162,6 @@ func (s *GroupService) Delete(ctx context.Context, id int64) error {
 	// 检查分组是否存在
 	_, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrGroupNotFound
-		}
 		return fmt.Errorf("get group: %w", err)
 	}
 
@@ -170,9 +176,6 @@ func (s *GroupService) Delete(ctx context.Context, id int64) error {
 func (s *GroupService) GetStats(ctx context.Context, id int64) (map[string]any, error) {
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrGroupNotFound
-		}
 		return nil, fmt.Errorf("get group: %w", err)
 	}
 

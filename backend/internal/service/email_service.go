@@ -4,22 +4,36 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/model"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
 	"math/big"
 	"net/smtp"
 	"strconv"
 	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
+	"github.com/Wei-Shaw/sub2api/internal/model"
 )
 
 var (
-	ErrEmailNotConfigured    = errors.New("email service not configured")
-	ErrInvalidVerifyCode     = errors.New("invalid or expired verification code")
-	ErrVerifyCodeTooFrequent = errors.New("please wait before requesting a new code")
-	ErrVerifyCodeMaxAttempts = errors.New("too many failed attempts, please request a new code")
+	ErrEmailNotConfigured    = infraerrors.ServiceUnavailable("EMAIL_NOT_CONFIGURED", "email service not configured")
+	ErrInvalidVerifyCode     = infraerrors.BadRequest("INVALID_VERIFY_CODE", "invalid or expired verification code")
+	ErrVerifyCodeTooFrequent = infraerrors.TooManyRequests("VERIFY_CODE_TOO_FREQUENT", "please wait before requesting a new code")
+	ErrVerifyCodeMaxAttempts = infraerrors.TooManyRequests("VERIFY_CODE_MAX_ATTEMPTS", "too many failed attempts, please request a new code")
 )
+
+// EmailCache defines cache operations for email service
+type EmailCache interface {
+	GetVerificationCode(ctx context.Context, email string) (*VerificationCodeData, error)
+	SetVerificationCode(ctx context.Context, email string, data *VerificationCodeData, ttl time.Duration) error
+	DeleteVerificationCode(ctx context.Context, email string) error
+}
+
+// VerificationCodeData represents verification code data
+type VerificationCodeData struct {
+	Code      string
+	Attempts  int
+	CreatedAt time.Time
+}
 
 const (
 	verifyCodeTTL         = 15 * time.Minute
@@ -40,12 +54,12 @@ type SmtpConfig struct {
 
 // EmailService 邮件服务
 type EmailService struct {
-	settingRepo ports.SettingRepository
-	cache       ports.EmailCache
+	settingRepo SettingRepository
+	cache       EmailCache
 }
 
 // NewEmailService 创建邮件服务实例
-func NewEmailService(settingRepo ports.SettingRepository, cache ports.EmailCache) *EmailService {
+func NewEmailService(settingRepo SettingRepository, cache EmailCache) *EmailService {
 	return &EmailService{
 		settingRepo: settingRepo,
 		cache:       cache,
@@ -205,7 +219,7 @@ func (s *EmailService) SendVerifyCode(ctx context.Context, email, siteName strin
 	}
 
 	// 保存验证码到 Redis
-	data := &ports.VerificationCodeData{
+	data := &VerificationCodeData{
 		Code:      code,
 		Attempts:  0,
 		CreatedAt: time.Now(),

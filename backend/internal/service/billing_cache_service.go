@@ -2,20 +2,19 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
 	"github.com/Wei-Shaw/sub2api/internal/model"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
 )
 
 // 错误定义
 // 注：ErrInsufficientBalance在redeem_service.go中定义
 // 注：ErrDailyLimitExceeded/ErrWeeklyLimitExceeded/ErrMonthlyLimitExceeded在subscription_service.go中定义
 var (
-	ErrSubscriptionInvalid = errors.New("subscription is invalid or expired")
+	ErrSubscriptionInvalid = infraerrors.Forbidden("SUBSCRIPTION_INVALID", "subscription is invalid or expired")
 )
 
 // subscriptionCacheData 订阅缓存数据结构（内部使用）
@@ -31,13 +30,13 @@ type subscriptionCacheData struct {
 // BillingCacheService 计费缓存服务
 // 负责余额和订阅数据的缓存管理，提供高性能的计费资格检查
 type BillingCacheService struct {
-	cache    ports.BillingCache
-	userRepo ports.UserRepository
-	subRepo  ports.UserSubscriptionRepository
+	cache    BillingCache
+	userRepo UserRepository
+	subRepo  UserSubscriptionRepository
 }
 
 // NewBillingCacheService 创建计费缓存服务
-func NewBillingCacheService(cache ports.BillingCache, userRepo ports.UserRepository, subRepo ports.UserSubscriptionRepository) *BillingCacheService {
+func NewBillingCacheService(cache BillingCache, userRepo UserRepository, subRepo UserSubscriptionRepository) *BillingCacheService {
 	return &BillingCacheService{
 		cache:    cache,
 		userRepo: userRepo,
@@ -149,7 +148,7 @@ func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID,
 	return data, nil
 }
 
-func (s *BillingCacheService) convertFromPortsData(data *ports.SubscriptionCacheData) *subscriptionCacheData {
+func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) *subscriptionCacheData {
 	return &subscriptionCacheData{
 		Status:       data.Status,
 		ExpiresAt:    data.ExpiresAt,
@@ -160,8 +159,8 @@ func (s *BillingCacheService) convertFromPortsData(data *ports.SubscriptionCache
 	}
 }
 
-func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *ports.SubscriptionCacheData {
-	return &ports.SubscriptionCacheData{
+func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *SubscriptionCacheData {
+	return &SubscriptionCacheData{
 		Status:       data.Status,
 		ExpiresAt:    data.ExpiresAt,
 		DailyUsage:   data.DailyUsage,

@@ -2,36 +2,35 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service/ports"
 )
 
 var (
-	ErrSubscriptionNotFound      = errors.New("subscription not found")
-	ErrSubscriptionExpired       = errors.New("subscription has expired")
-	ErrSubscriptionSuspended     = errors.New("subscription is suspended")
-	ErrSubscriptionAlreadyExists = errors.New("subscription already exists for this user and group")
-	ErrGroupNotSubscriptionType  = errors.New("group is not a subscription type")
-	ErrDailyLimitExceeded        = errors.New("daily usage limit exceeded")
-	ErrWeeklyLimitExceeded       = errors.New("weekly usage limit exceeded")
-	ErrMonthlyLimitExceeded      = errors.New("monthly usage limit exceeded")
+	ErrSubscriptionNotFound      = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
+	ErrSubscriptionExpired       = infraerrors.Forbidden("SUBSCRIPTION_EXPIRED", "subscription has expired")
+	ErrSubscriptionSuspended     = infraerrors.Forbidden("SUBSCRIPTION_SUSPENDED", "subscription is suspended")
+	ErrSubscriptionAlreadyExists = infraerrors.Conflict("SUBSCRIPTION_ALREADY_EXISTS", "subscription already exists for this user and group")
+	ErrGroupNotSubscriptionType  = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
+	ErrDailyLimitExceeded        = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
+	ErrWeeklyLimitExceeded       = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
+	ErrMonthlyLimitExceeded      = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
 )
 
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
-	groupRepo           ports.GroupRepository
-	userSubRepo         ports.UserSubscriptionRepository
+	groupRepo           GroupRepository
+	userSubRepo         UserSubscriptionRepository
 	billingCacheService *BillingCacheService
 }
 
 // NewSubscriptionService 创建订阅服务
-func NewSubscriptionService(groupRepo ports.GroupRepository, userSubRepo ports.UserSubscriptionRepository, billingCacheService *BillingCacheService) *SubscriptionService {
+func NewSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscriptionRepository, billingCacheService *BillingCacheService) *SubscriptionService {
 	return &SubscriptionService{
 		groupRepo:           groupRepo,
 		userSubRepo:         userSubRepo,
