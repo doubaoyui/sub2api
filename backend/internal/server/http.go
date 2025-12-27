@@ -1,12 +1,13 @@
 package server
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"net/http"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/handler"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
@@ -19,15 +20,23 @@ var ProviderSet = wire.NewSet(
 )
 
 // ProvideRouter 提供路由器
-func ProvideRouter(cfg *config.Config, handlers *handler.Handlers, services *service.Services, repos *repository.Repositories) *gin.Engine {
+func ProvideRouter(
+	cfg *config.Config,
+	handlers *handler.Handlers,
+	jwtAuth middleware2.JWTAuthMiddleware,
+	adminAuth middleware2.AdminAuthMiddleware,
+	apiKeyAuth middleware2.ApiKeyAuthMiddleware,
+	apiKeyService *service.ApiKeyService,
+	subscriptionService *service.SubscriptionService,
+) *gin.Engine {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	r := gin.New()
-	r.Use(gin.Recovery())
+	r.Use(middleware2.Recovery())
 
-	return SetupRouter(r, cfg, handlers, services, repos)
+	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService)
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器

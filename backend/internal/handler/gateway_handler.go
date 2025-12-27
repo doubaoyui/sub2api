@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -22,15 +21,23 @@ import (
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
 	gatewayService      *service.GatewayService
+	geminiCompatService *service.GeminiMessagesCompatService
 	userService         *service.UserService
 	billingCacheService *service.BillingCacheService
 	concurrencyHelper   *ConcurrencyHelper
 }
 
 // NewGatewayHandler creates a new GatewayHandler
-func NewGatewayHandler(gatewayService *service.GatewayService, userService *service.UserService, concurrencyService *service.ConcurrencyService, billingCacheService *service.BillingCacheService) *GatewayHandler {
+func NewGatewayHandler(
+	gatewayService *service.GatewayService,
+	geminiCompatService *service.GeminiMessagesCompatService,
+	userService *service.UserService,
+	concurrencyService *service.ConcurrencyService,
+	billingCacheService *service.BillingCacheService,
+) *GatewayHandler {
 	return &GatewayHandler{
 		gatewayService:      gatewayService,
+		geminiCompatService: geminiCompatService,
 		userService:         userService,
 		billingCacheService: billingCacheService,
 		concurrencyHelper:   NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude),
@@ -41,13 +48,13 @@ func NewGatewayHandler(gatewayService *service.GatewayService, userService *serv
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
-	apiKey, ok := middleware.GetApiKeyFromContext(c)
+	apiKey, ok := middleware2.GetApiKeyFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
 	}
 
-	user, ok := middleware.GetUserFromContext(c)
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
@@ -79,11 +86,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	streamStarted := false
 
 	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
-	subscription, _ := middleware.GetSubscriptionFromContext(c)
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
 	// 0. 检查wait队列是否已满
-	maxWait := service.CalculateMaxWait(user.Concurrency)
-	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), user.ID, maxWait)
+	maxWait := service.CalculateMaxWait(subject.Concurrency)
+	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), subject.UserID, maxWait)
 	if err != nil {
 		log.Printf("Increment wait count failed: %v", err)
 		// On error, allow request to proceed
@@ -92,10 +99,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	// 确保在函数退出时减少wait计数
-	defer h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), user.ID)
+	defer h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), subject.UserID)
 
 	// 1. 首先获取用户并发槽位
-	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, user, req.Stream, &streamStarted)
+	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, req.Stream, &streamStarted)
 	if err != nil {
 		log.Printf("User concurrency acquire failed: %v", err)
 		h.handleConcurrencyError(c, err, "user", streamStarted)
@@ -106,7 +113,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 2. 【新增】Wait后二次检查余额/订阅
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), user, apiKey, apiKey.Group, subscription); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		log.Printf("Billing eligibility check failed after wait: %v", err)
 		h.handleStreamingAwareError(c, http.StatusForbidden, "billing_error", err.Error(), streamStarted)
 		return
@@ -115,8 +122,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 计算粘性会话hash
 	sessionHash := h.gatewayService.GenerateSessionHash(body)
 
+	platform := ""
+	if apiKey.Group != nil {
+		platform = apiKey.Group.Platform
+	}
+
 	// 选择支持该模型的账号
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, req.Model)
+	var account *service.Account
+	if platform == service.PlatformGemini {
+		account, err = h.geminiCompatService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, req.Model)
+	} else {
+		account, err = h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, req.Model)
+	}
 	if err != nil {
 		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 		return
@@ -133,7 +150,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 3. 获取账号并发槽位
-	accountReleaseFunc, err := h.concurrencyHelper.AcquireAccountSlotWithWait(c, account, req.Stream, &streamStarted)
+	accountReleaseFunc, err := h.concurrencyHelper.AcquireAccountSlotWithWait(c, account.ID, account.Concurrency, req.Stream, &streamStarted)
 	if err != nil {
 		log.Printf("Account concurrency acquire failed: %v", err)
 		h.handleConcurrencyError(c, err, "account", streamStarted)
@@ -144,7 +161,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 转发请求
-	result, err := h.gatewayService.Forward(c.Request.Context(), c, account, body)
+	var result *service.ForwardResult
+	if platform == service.PlatformGemini {
+		result, err = h.geminiCompatService.Forward(c.Request.Context(), c, account, body)
+	} else {
+		result, err = h.gatewayService.Forward(c.Request.Context(), c, account, body)
+	}
 	if err != nil {
 		// 错误响应已在Forward中处理，这里只记录日志
 		log.Printf("Forward request failed: %v", err)
@@ -158,7 +180,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 			Result:       result,
 			ApiKey:       apiKey,
-			User:         user,
+			User:         apiKey.User,
 			Account:      account,
 			Subscription: subscription,
 		}); err != nil {
@@ -171,7 +193,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // GET /v1/models
 // Returns different model lists based on the API key's group platform
 func (h *GatewayHandler) Models(c *gin.Context) {
-	apiKey, _ := middleware.GetApiKeyFromContext(c)
+	apiKey, _ := middleware2.GetApiKeyFromContext(c)
 
 	// Return OpenAI models for OpenAI platform groups
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == "openai" {
@@ -192,13 +214,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 // Usage handles getting account balance for CC Switch integration
 // GET /v1/usage
 func (h *GatewayHandler) Usage(c *gin.Context) {
-	apiKey, ok := middleware.GetApiKeyFromContext(c)
+	apiKey, ok := middleware2.GetApiKeyFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
 	}
 
-	user, ok := middleware.GetUserFromContext(c)
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
@@ -206,7 +228,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 
 	// 订阅模式：返回订阅限额信息
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
-		subscription, ok := middleware.GetSubscriptionFromContext(c)
+		subscription, ok := middleware2.GetSubscriptionFromContext(c)
 		if !ok {
 			h.errorResponse(c, http.StatusForbidden, "subscription_error", "No active subscription")
 			return
@@ -223,7 +245,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 	}
 
 	// 余额模式：返回钱包余额
-	latestUser, err := h.userService.GetByID(c.Request.Context(), user.ID)
+	latestUser, err := h.userService.GetByID(c.Request.Context(), subject.UserID)
 	if err != nil {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
 		return
@@ -241,7 +263,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 // 逻辑：
 // 1. 如果日/周/月任一限额达到100%，返回0
 // 2. 否则返回所有已配置周期中剩余额度的最小值
-func (h *GatewayHandler) calculateSubscriptionRemaining(group *model.Group, sub *model.UserSubscription) float64 {
+func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, sub *service.UserSubscription) float64 {
 	var remainingValues []float64
 
 	// 检查日限额
@@ -328,13 +350,13 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 // 特点：校验订阅/余额，但不计算并发、不记录使用量
 func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
-	apiKey, ok := middleware.GetApiKeyFromContext(c)
+	apiKey, ok := middleware2.GetApiKeyFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
 	}
 
-	user, ok := middleware.GetUserFromContext(c)
+	_, ok = middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
@@ -362,11 +384,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 
 	// 获取订阅信息（可能为nil）
-	subscription, _ := middleware.GetSubscriptionFromContext(c)
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), user, apiKey, apiKey.Group, subscription); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		h.errorResponse(c, http.StatusForbidden, "billing_error", err.Error())
 		return
 	}

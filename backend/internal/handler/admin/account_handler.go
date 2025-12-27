@@ -2,9 +2,11 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -30,6 +32,7 @@ type AccountHandler struct {
 	adminService        service.AdminService
 	oauthService        *service.OAuthService
 	openaiOAuthService  *service.OpenAIOAuthService
+	geminiOAuthService  *service.GeminiOAuthService
 	rateLimitService    *service.RateLimitService
 	accountUsageService *service.AccountUsageService
 	accountTestService  *service.AccountTestService
@@ -42,6 +45,7 @@ func NewAccountHandler(
 	adminService service.AdminService,
 	oauthService *service.OAuthService,
 	openaiOAuthService *service.OpenAIOAuthService,
+	geminiOAuthService *service.GeminiOAuthService,
 	rateLimitService *service.RateLimitService,
 	accountUsageService *service.AccountUsageService,
 	accountTestService *service.AccountTestService,
@@ -52,6 +56,7 @@ func NewAccountHandler(
 		adminService:        adminService,
 		oauthService:        oauthService,
 		openaiOAuthService:  openaiOAuthService,
+		geminiOAuthService:  geminiOAuthService,
 		rateLimitService:    rateLimitService,
 		accountUsageService: accountUsageService,
 		accountTestService:  accountTestService,
@@ -102,7 +107,7 @@ type BulkUpdateAccountsRequest struct {
 
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
-	*model.Account
+	*dto.Account
 	CurrentConcurrency int `json:"current_concurrency"`
 }
 
@@ -137,7 +142,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		result[i] = AccountWithConcurrency{
-			Account:            &accounts[i],
+			Account:            dto.AccountFromService(&accounts[i]),
 			CurrentConcurrency: concurrencyCounts[accounts[i].ID],
 		}
 	}
@@ -160,7 +165,7 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, account)
+	response.Success(c, dto.AccountFromService(account))
 }
 
 // Create handles creating a new account
@@ -188,7 +193,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, account)
+	response.Success(c, dto.AccountFromService(account))
 }
 
 // Update handles updating an account
@@ -222,7 +227,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, account)
+	response.Success(c, dto.AccountFromService(account))
 }
 
 // Delete handles deleting an account
@@ -345,6 +350,19 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 				newCredentials[k] = v
 			}
 		}
+	} else if account.Platform == service.PlatformGemini {
+		tokenInfo, err := h.geminiOAuthService.RefreshAccountToken(c.Request.Context(), account)
+		if err != nil {
+			response.InternalError(c, "Failed to refresh credentials: "+err.Error())
+			return
+		}
+
+		newCredentials = h.geminiOAuthService.BuildAccountCredentials(tokenInfo)
+		for k, v := range account.Credentials {
+			if _, exists := newCredentials[k]; !exists {
+				newCredentials[k] = v
+			}
+		}
 	} else {
 		// Use Anthropic/Claude OAuth service to refresh token
 		tokenInfo, err := h.oauthService.RefreshAccountToken(c.Request.Context(), account)
@@ -362,10 +380,14 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		// Update token-related fields
 		newCredentials["access_token"] = tokenInfo.AccessToken
 		newCredentials["token_type"] = tokenInfo.TokenType
-		newCredentials["expires_in"] = tokenInfo.ExpiresIn
-		newCredentials["expires_at"] = tokenInfo.ExpiresAt
-		newCredentials["refresh_token"] = tokenInfo.RefreshToken
-		newCredentials["scope"] = tokenInfo.Scope
+		newCredentials["expires_in"] = strconv.FormatInt(tokenInfo.ExpiresIn, 10)
+		newCredentials["expires_at"] = strconv.FormatInt(tokenInfo.ExpiresAt, 10)
+		if strings.TrimSpace(tokenInfo.RefreshToken) != "" {
+			newCredentials["refresh_token"] = tokenInfo.RefreshToken
+		}
+		if strings.TrimSpace(tokenInfo.Scope) != "" {
+			newCredentials["scope"] = tokenInfo.Scope
+		}
 	}
 
 	updatedAccount, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
@@ -376,7 +398,7 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, updatedAccount)
+	response.Success(c, dto.AccountFromService(updatedAccount))
 }
 
 // GetStats handles getting account statistics
@@ -425,7 +447,7 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, account)
+	response.Success(c, dto.AccountFromService(account))
 }
 
 // BatchCreate handles batch creating accounts
@@ -801,7 +823,7 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, account)
+	response.Success(c, dto.AccountFromService(account))
 }
 
 // GetAvailableModels handles getting available models for an account
@@ -851,6 +873,44 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 					Object:      "model",
 					Type:        "model",
 					DisplayName: requestedModel,
+				})
+			}
+		}
+		response.Success(c, models)
+		return
+	}
+
+	// Handle Gemini accounts
+	if account.IsGemini() {
+		// For OAuth accounts: return default Gemini models
+		if account.IsOAuth() {
+			response.Success(c, geminicli.DefaultModels)
+			return
+		}
+
+		// For API Key accounts: return models based on model_mapping
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, geminicli.DefaultModels)
+			return
+		}
+
+		var models []geminicli.Model
+		for requestedModel := range mapping {
+			var found bool
+			for _, dm := range geminicli.DefaultModels {
+				if dm.ID == requestedModel {
+					models = append(models, dm)
+					found = true
+					break
+				}
+			}
+			if !found {
+				models = append(models, geminicli.Model{
+					ID:          requestedModel,
+					Type:        "model",
+					DisplayName: requestedModel,
+					CreatedAt:   "",
 				})
 			}
 		}

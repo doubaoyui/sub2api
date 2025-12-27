@@ -36,9 +36,10 @@ func ProvideTokenRefreshService(
 	accountRepo AccountRepository,
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
+	geminiOAuthService *GeminiOAuthService,
 	cfg *config.Config,
 ) *TokenRefreshService {
-	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, cfg)
+	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, cfg)
 	svc.Start()
 	return svc
 }
@@ -63,6 +64,9 @@ var ProviderSet = wire.NewSet(
 	NewOpenAIGatewayService,
 	NewOAuthService,
 	NewOpenAIOAuthService,
+	NewGeminiOAuthService,
+	NewGeminiTokenProvider,
+	NewGeminiMessagesCompatService,
 	NewRateLimitService,
 	NewAccountUsageService,
 	NewAccountTestService,
@@ -76,7 +80,4 @@ var ProviderSet = wire.NewSet(
 	NewCRSSyncService,
 	ProvideUpdateService,
 	ProvideTokenRefreshService,
-
-	// Provide the Services container struct
-	wire.Struct(new(Services), "*"),
 )
