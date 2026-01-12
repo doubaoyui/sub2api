@@ -5,6 +5,9 @@
 
 export { useAuthStore } from './auth'
 export { useAppStore } from './app'
+export { useAdminSettingsStore } from './adminSettings'
+export { useSubscriptionStore } from './subscriptions'
+export { useOnboardingStore } from './onboarding'
 
 // Re-export types for convenience
 export type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'

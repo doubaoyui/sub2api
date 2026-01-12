@@ -1,28 +1,40 @@
+// Package service provides business logic and domain services for the application.
 package service
 
-import "time"
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+	"time"
+)
 
 type Account struct {
-	ID           int64
-	Name         string
-	Platform     string
-	Type         string
-	Credentials  map[string]any
-	Extra        map[string]any
-	ProxyID      *int64
-	Concurrency  int
-	Priority     int
-	Status       string
-	ErrorMessage string
-	LastUsedAt   *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                 int64
+	Name               string
+	Notes              *string
+	Platform           string
+	Type               string
+	Credentials        map[string]any
+	Extra              map[string]any
+	ProxyID            *int64
+	Concurrency        int
+	Priority           int
+	Status             string
+	ErrorMessage       string
+	LastUsedAt         *time.Time
+	ExpiresAt          *time.Time
+	AutoPauseOnExpired bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 
 	Schedulable bool
 
 	RateLimitedAt    *time.Time
 	RateLimitResetAt *time.Time
 	OverloadUntil    *time.Time
+
+	TempUnschedulableUntil  *time.Time
+	TempUnschedulableReason string
 
 	SessionWindowStart  *time.Time
 	SessionWindowEnd    *time.Time
@@ -34,6 +46,13 @@ type Account struct {
 	Groups        []*Group
 }
 
+type TempUnschedulableRule struct {
+	ErrorCode       int      `json:"error_code"`
+	Keywords        []string `json:"keywords"`
+	DurationMinutes int      `json:"duration_minutes"`
+	Description     string   `json:"description"`
+}
+
 func (a *Account) IsActive() bool {
 	return a.Status == StatusActive
 }
@@ -43,10 +62,16 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	now := time.Now()
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+		return false
+	}
 	if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
 		return false
 	}
 	if a.RateLimitResetAt != nil && now.Before(*a.RateLimitResetAt) {
+		return false
+	}
+	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
 	return true
@@ -74,6 +99,33 @@ func (a *Account) IsGemini() bool {
 	return a.Platform == PlatformGemini
 }
 
+func (a *Account) GeminiOAuthType() string {
+	if a.Platform != PlatformGemini || a.Type != AccountTypeOAuth {
+		return ""
+	}
+	oauthType := strings.TrimSpace(a.GetCredential("oauth_type"))
+	if oauthType == "" && strings.TrimSpace(a.GetCredential("project_id")) != "" {
+		return "code_assist"
+	}
+	return oauthType
+}
+
+func (a *Account) GeminiTierID() string {
+	tierID := strings.TrimSpace(a.GetCredential("tier_id"))
+	return tierID
+}
+
+func (a *Account) IsGeminiCodeAssist() bool {
+	if a.Platform != PlatformGemini || a.Type != AccountTypeOAuth {
+		return false
+	}
+	oauthType := a.GeminiOAuthType()
+	if oauthType == "" {
+		return strings.TrimSpace(a.GetCredential("project_id")) != ""
+	}
+	return oauthType == "code_assist"
+}
+
 func (a *Account) CanGetUsage() bool {
 	return a.Type == AccountTypeOAuth
 }
@@ -82,12 +134,169 @@ func (a *Account) GetCredential(key string) string {
 	if a.Credentials == nil {
 		return ""
 	}
-	if v, ok := a.Credentials[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
+	v, ok := a.Credentials[key]
+	if !ok || v == nil {
+		return ""
+	}
+
+	// 支持多种类型（兼容历史数据中 expires_at 等字段可能是数字或字符串）
+	switch val := v.(type) {
+	case string:
+		return val
+	case json.Number:
+		// GORM datatypes.JSONMap 使用 UseNumber() 解析，数字类型为 json.Number
+		return val.String()
+	case float64:
+		// JSON 解析后数字默认为 float64
+		return strconv.FormatInt(int64(val), 10)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	case int:
+		return strconv.Itoa(val)
+	default:
+		return ""
+	}
+}
+
+// GetCredentialAsTime 解析凭证中的时间戳字段，支持多种格式
+// 兼容以下格式：
+//   - RFC3339 字符串: "2025-01-01T00:00:00Z"
+//   - Unix 时间戳字符串: "1735689600"
+//   - Unix 时间戳数字: 1735689600 (float64/int64/json.Number)
+func (a *Account) GetCredentialAsTime(key string) *time.Time {
+	s := a.GetCredential(key)
+	if s == "" {
+		return nil
+	}
+	// 尝试 RFC3339 格式
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return &t
+	}
+	// 尝试 Unix 时间戳（纯数字字符串）
+	if ts, err := strconv.ParseInt(s, 10, 64); err == nil {
+		t := time.Unix(ts, 0)
+		return &t
+	}
+	return nil
+}
+
+func (a *Account) IsTempUnschedulableEnabled() bool {
+	if a.Credentials == nil {
+		return false
+	}
+	raw, ok := a.Credentials["temp_unschedulable_enabled"]
+	if !ok || raw == nil {
+		return false
+	}
+	enabled, ok := raw.(bool)
+	return ok && enabled
+}
+
+func (a *Account) GetTempUnschedulableRules() []TempUnschedulableRule {
+	if a.Credentials == nil {
+		return nil
+	}
+	raw, ok := a.Credentials["temp_unschedulable_rules"]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	rules := make([]TempUnschedulableRule, 0, len(arr))
+	for _, item := range arr {
+		entry, ok := item.(map[string]any)
+		if !ok || entry == nil {
+			continue
+		}
+
+		rule := TempUnschedulableRule{
+			ErrorCode:       parseTempUnschedInt(entry["error_code"]),
+			Keywords:        parseTempUnschedStrings(entry["keywords"]),
+			DurationMinutes: parseTempUnschedInt(entry["duration_minutes"]),
+			Description:     parseTempUnschedString(entry["description"]),
+		}
+
+		if rule.ErrorCode <= 0 || rule.DurationMinutes <= 0 || len(rule.Keywords) == 0 {
+			continue
+		}
+
+		rules = append(rules, rule)
+	}
+
+	return rules
+}
+
+func parseTempUnschedString(value any) string {
+	s, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func parseTempUnschedStrings(value any) []string {
+	if value == nil {
+		return nil
+	}
+
+	var raw []string
+	switch v := value.(type) {
+	case []string:
+		raw = v
+	case []any:
+		raw = make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				raw = append(raw, s)
+			}
+		}
+	default:
+		return nil
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		s := strings.TrimSpace(item)
+		if s != "" {
+			out = append(out, s)
 		}
 	}
-	return ""
+	return out
+}
+
+func normalizeAccountNotes(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func parseTempUnschedInt(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 func (a *Account) GetModelMapping() map[string]string {
@@ -133,7 +342,7 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 }
 
 func (a *Account) GetBaseURL() string {
-	if a.Type != AccountTypeApiKey {
+	if a.Type != AccountTypeAPIKey {
 		return ""
 	}
 	baseURL := a.GetCredential("base_url")
@@ -156,7 +365,7 @@ func (a *Account) GetExtraString(key string) string {
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {
-	if a.Type != AccountTypeApiKey || a.Credentials == nil {
+	if a.Type != AccountTypeAPIKey || a.Credentials == nil {
 		return false
 	}
 	if v, ok := a.Credentials["custom_error_codes_enabled"]; ok {
@@ -228,14 +437,14 @@ func (a *Account) IsOpenAIOAuth() bool {
 }
 
 func (a *Account) IsOpenAIApiKey() bool {
-	return a.IsOpenAI() && a.Type == AccountTypeApiKey
+	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() {
 		return ""
 	}
-	if a.Type == AccountTypeApiKey {
+	if a.Type == AccountTypeAPIKey {
 		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
 			return baseURL
@@ -304,19 +513,7 @@ func (a *Account) GetOpenAITokenExpiresAt() *time.Time {
 	if !a.IsOpenAIOAuth() {
 		return nil
 	}
-	expiresAtStr := a.GetCredential("expires_at")
-	if expiresAtStr == "" {
-		return nil
-	}
-	t, err := time.Parse(time.RFC3339, expiresAtStr)
-	if err != nil {
-		if v, ok := a.Credentials["expires_at"].(float64); ok {
-			tt := time.Unix(int64(v), 0)
-			return &tt
-		}
-		return nil
-	}
-	return &t
+	return a.GetCredentialAsTime("expires_at")
 }
 
 func (a *Account) IsOpenAITokenExpired() bool {
@@ -325,4 +522,21 @@ func (a *Account) IsOpenAITokenExpired() bool {
 		return false
 	}
 	return time.Now().Add(60 * time.Second).After(*expiresAt)
+}
+
+// IsMixedSchedulingEnabled 检查 antigravity 账户是否启用混合调度
+// 启用后可参与 anthropic/gemini 分组的账户调度
+func (a *Account) IsMixedSchedulingEnabled() bool {
+	if a.Platform != PlatformAntigravity {
+		return false
+	}
+	if a.Extra == nil {
+		return false
+	}
+	if v, ok := a.Extra["mixed_scheduling"]; ok {
+		if enabled, ok := v.(bool); ok {
+			return enabled
+		}
+	}
+	return false
 }

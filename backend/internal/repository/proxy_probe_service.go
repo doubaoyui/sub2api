@@ -2,39 +2,58 @@ package repository
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
+	"log"
 	"net/http"
-	"net/url"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-
-	"golang.org/x/net/proxy"
 )
 
-func NewProxyExitInfoProber() service.ProxyExitInfoProber {
-	return &proxyProbeService{ipInfoURL: defaultIPInfoURL}
+func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
+	insecure := false
+	allowPrivate := false
+	validateResolvedIP := true
+	if cfg != nil {
+		insecure = cfg.Security.ProxyProbe.InsecureSkipVerify
+		allowPrivate = cfg.Security.URLAllowlist.AllowPrivateHosts
+		validateResolvedIP = cfg.Security.URLAllowlist.Enabled
+	}
+	if insecure {
+		log.Printf("[ProxyProbe] Warning: insecure_skip_verify is not allowed and will cause probe failure.")
+	}
+	return &proxyProbeService{
+		ipInfoURL:          defaultIPInfoURL,
+		insecureSkipVerify: insecure,
+		allowPrivateHosts:  allowPrivate,
+		validateResolvedIP: validateResolvedIP,
+	}
 }
 
 const defaultIPInfoURL = "https://ipinfo.io/json"
 
 type proxyProbeService struct {
-	ipInfoURL string
+	ipInfoURL          string
+	insecureSkipVerify bool
+	allowPrivateHosts  bool
+	validateResolvedIP bool
 }
 
 func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*service.ProxyExitInfo, int64, error) {
-	transport, err := createProxyTransport(proxyURL)
+	client, err := httpclient.GetClient(httpclient.Options{
+		ProxyURL:           proxyURL,
+		Timeout:            15 * time.Second,
+		InsecureSkipVerify: s.insecureSkipVerify,
+		ProxyStrict:        true,
+		ValidateResolvedIP: s.validateResolvedIP,
+		AllowPrivateHosts:  s.allowPrivateHosts,
+	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create proxy transport: %w", err)
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   15 * time.Second,
+		return nil, 0, fmt.Errorf("failed to create proxy client: %w", err)
 	}
 
 	startTime := time.Now()
@@ -77,32 +96,4 @@ func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*s
 		Region:  ipInfo.Region,
 		Country: ipInfo.Country,
 	}, latencyMs, nil
-}
-
-func createProxyTransport(proxyURL string) (*http.Transport, error) {
-	parsedURL, err := url.Parse(proxyURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid proxy URL: %w", err)
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	switch parsedURL.Scheme {
-	case "http", "https":
-		transport.Proxy = http.ProxyURL(parsedURL)
-	case "socks5":
-		dialer, err := proxy.FromURL(parsedURL, proxy.Direct)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create socks5 dialer: %w", err)
-		}
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dialer.Dial(network, addr)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported proxy protocol: %s", parsedURL.Scheme)
-	}
-
-	return transport, nil
 }

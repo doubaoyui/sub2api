@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, readonly } from 'vue'
 import { authAPI } from '@/api'
 import type { User, LoginRequest, RegisterRequest } from '@/types'
 
@@ -17,6 +17,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const user = ref<User | null>(null)
   const token = ref<string | null>(null)
+  const runMode = ref<'standard' | 'simple'>('standard')
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
 
   // ==================== Computed ====================
@@ -28,6 +29,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => {
     return user.value?.role === 'admin'
   })
+
+  const isSimpleMode = computed(() => runMode.value === 'simple')
 
   // ==================== Actions ====================
 
@@ -98,16 +101,22 @@ export const useAuthStore = defineStore('auth', () => {
 
       // Store token and user
       token.value = response.access_token
-      user.value = response.user
+
+      // Extract run_mode if present
+      if (response.user.run_mode) {
+        runMode.value = response.user.run_mode
+      }
+      const { run_mode: _run_mode, ...userData } = response.user
+      user.value = userData
 
       // Persist to localStorage
       localStorage.setItem(AUTH_TOKEN_KEY, response.access_token)
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(response.user))
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
 
       // Start auto-refresh interval
       startAutoRefresh()
 
-      return response.user
+      return userData
     } catch (error) {
       // Clear any partial state on error
       clearAuth()
@@ -127,18 +136,45 @@ export const useAuthStore = defineStore('auth', () => {
 
       // Store token and user
       token.value = response.access_token
-      user.value = response.user
+
+      // Extract run_mode if present
+      if (response.user.run_mode) {
+        runMode.value = response.user.run_mode
+      }
+      const { run_mode: _run_mode, ...userDataWithoutRunMode } = response.user
+      user.value = userDataWithoutRunMode
 
       // Persist to localStorage
       localStorage.setItem(AUTH_TOKEN_KEY, response.access_token)
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(response.user))
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userDataWithoutRunMode))
 
       // Start auto-refresh interval
       startAutoRefresh()
 
-      return response.user
+      return userDataWithoutRunMode
     } catch (error) {
       // Clear any partial state on error
+      clearAuth()
+      throw error
+    }
+  }
+
+  /**
+   * 直接设置 token（用于 OAuth/SSO 回调），并加载当前用户信息。
+   * @param newToken - 后端签发的 JWT access token
+   */
+  async function setToken(newToken: string): Promise<User> {
+    // Clear any previous state first (avoid mixing sessions)
+    clearAuth()
+
+    token.value = newToken
+    localStorage.setItem(AUTH_TOKEN_KEY, newToken)
+
+    try {
+      const userData = await refreshUser()
+      startAutoRefresh()
+      return userData
+    } catch (error) {
       clearAuth()
       throw error
     }
@@ -168,13 +204,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      const updatedUser = await authAPI.getCurrentUser()
-      user.value = updatedUser
+      const response = await authAPI.getCurrentUser()
+      if (response.data.run_mode) {
+        runMode.value = response.data.run_mode
+      }
+      const { run_mode: _run_mode, ...userData } = response.data
+      user.value = userData
 
       // Update localStorage
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser))
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
 
-      return updatedUser
+      return userData
     } catch (error) {
       // If refresh fails with 401, clear auth state
       if ((error as { status?: number }).status === 401) {
@@ -204,14 +244,17 @@ export const useAuthStore = defineStore('auth', () => {
     // State
     user,
     token,
+    runMode: readonly(runMode),
 
     // Computed
     isAuthenticated,
     isAdmin,
+    isSimpleMode,
 
     // Actions
     login,
     register,
+    setToken,
     logout,
     checkAuth,
     refreshUser

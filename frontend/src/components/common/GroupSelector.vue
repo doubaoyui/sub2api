@@ -1,8 +1,8 @@
 <template>
   <div>
     <label class="input-label">
-      Groups
-      <span class="font-normal text-gray-400">({{ modelValue.length }} selected)</span>
+      {{ t('admin.users.groups') }}
+      <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
     </label>
     <div
       class="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-800"
@@ -11,7 +11,7 @@
         v-for="group in filteredGroups"
         :key="group.id"
         class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
-        :title="`${group.rate_multiplier}x rate · ${group.account_count || 0} accounts`"
+        :title="t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
         <input
           type="checkbox"
@@ -32,7 +32,7 @@
         v-if="filteredGroups.length === 0"
         class="col-span-2 py-2 text-center text-sm text-gray-500 dark:text-gray-400"
       >
-        No groups available
+        {{ t('common.noGroupsAvailable') }}
       </div>
     </div>
   </div>
@@ -40,13 +40,17 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
 import type { Group, GroupPlatform } from '@/types'
+
+const { t } = useI18n()
 
 interface Props {
   modelValue: number[]
   groups: Group[]
   platform?: GroupPlatform // Optional platform filter
+  mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
 }
 
 const props = defineProps<Props>()
@@ -59,6 +63,13 @@ const filteredGroups = computed(() => {
   if (!props.platform) {
     return props.groups
   }
+  // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
+  if (props.platform === 'antigravity' && props.mixedScheduling) {
+    return props.groups.filter(
+      (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+    )
+  }
+  // 默认：只能选择同 platform 的分组
   return props.groups.filter((g) => g.platform === props.platform)
 })
 

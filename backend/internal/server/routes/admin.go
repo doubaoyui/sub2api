@@ -1,3 +1,4 @@
+// Package routes provides HTTP route registration and handlers.
 package routes
 
 import (
@@ -34,14 +35,23 @@ func RegisterAdminRoutes(
 		// Gemini OAuth
 		registerGeminiOAuthRoutes(admin, h)
 
+		// Antigravity OAuth
+		registerAntigravityOAuthRoutes(admin, h)
+
 		// 代理管理
 		registerProxyRoutes(admin, h)
 
 		// 卡密管理
 		registerRedeemCodeRoutes(admin, h)
 
+		// 优惠码管理
+		registerPromoCodeRoutes(admin, h)
+
 		// 系统设置
 		registerSettingsRoutes(admin, h)
+
+		// 运维监控（Ops）
+		registerOpsRoutes(admin, h)
 
 		// 系统管理
 		registerSystemRoutes(admin, h)
@@ -51,6 +61,69 @@ func RegisterAdminRoutes(
 
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
+
+		// 用户属性管理
+		registerUserAttributeRoutes(admin, h)
+	}
+}
+
+func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	ops := admin.Group("/ops")
+	{
+		// Realtime ops signals
+		ops.GET("/concurrency", h.Admin.Ops.GetConcurrencyStats)
+		ops.GET("/account-availability", h.Admin.Ops.GetAccountAvailability)
+		ops.GET("/realtime-traffic", h.Admin.Ops.GetRealtimeTrafficSummary)
+
+		// Alerts (rules + events)
+		ops.GET("/alert-rules", h.Admin.Ops.ListAlertRules)
+		ops.POST("/alert-rules", h.Admin.Ops.CreateAlertRule)
+		ops.PUT("/alert-rules/:id", h.Admin.Ops.UpdateAlertRule)
+		ops.DELETE("/alert-rules/:id", h.Admin.Ops.DeleteAlertRule)
+		ops.GET("/alert-events", h.Admin.Ops.ListAlertEvents)
+
+		// Email notification config (DB-backed)
+		ops.GET("/email-notification/config", h.Admin.Ops.GetEmailNotificationConfig)
+		ops.PUT("/email-notification/config", h.Admin.Ops.UpdateEmailNotificationConfig)
+
+		// Runtime settings (DB-backed)
+		runtime := ops.Group("/runtime")
+		{
+			runtime.GET("/alert", h.Admin.Ops.GetAlertRuntimeSettings)
+			runtime.PUT("/alert", h.Admin.Ops.UpdateAlertRuntimeSettings)
+		}
+
+		// Advanced settings (DB-backed)
+		ops.GET("/advanced-settings", h.Admin.Ops.GetAdvancedSettings)
+		ops.PUT("/advanced-settings", h.Admin.Ops.UpdateAdvancedSettings)
+
+		// Settings group (DB-backed)
+		settings := ops.Group("/settings")
+		{
+			settings.GET("/metric-thresholds", h.Admin.Ops.GetMetricThresholds)
+			settings.PUT("/metric-thresholds", h.Admin.Ops.UpdateMetricThresholds)
+		}
+
+		// WebSocket realtime (QPS/TPS)
+		ws := ops.Group("/ws")
+		{
+			ws.GET("/qps", h.Admin.Ops.QPSWSHandler)
+		}
+
+		// Error logs (MVP-1)
+		ops.GET("/errors", h.Admin.Ops.GetErrorLogs)
+		ops.GET("/errors/:id", h.Admin.Ops.GetErrorLogByID)
+		ops.POST("/errors/:id/retry", h.Admin.Ops.RetryErrorRequest)
+
+		// Request drilldown (success + error)
+		ops.GET("/requests", h.Admin.Ops.ListRequestDetails)
+
+		// Dashboard (vNext - raw path for MVP)
+		ops.GET("/dashboard/overview", h.Admin.Ops.GetDashboardOverview)
+		ops.GET("/dashboard/throughput-trend", h.Admin.Ops.GetDashboardThroughputTrend)
+		ops.GET("/dashboard/latency-histogram", h.Admin.Ops.GetDashboardLatencyHistogram)
+		ops.GET("/dashboard/error-trend", h.Admin.Ops.GetDashboardErrorTrend)
+		ops.GET("/dashboard/error-distribution", h.Admin.Ops.GetDashboardErrorDistribution)
 	}
 }
 
@@ -61,10 +134,11 @@ func registerDashboardRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		dashboard.GET("/realtime", h.Admin.Dashboard.GetRealtimeMetrics)
 		dashboard.GET("/trend", h.Admin.Dashboard.GetUsageTrend)
 		dashboard.GET("/models", h.Admin.Dashboard.GetModelStats)
-		dashboard.GET("/api-keys-trend", h.Admin.Dashboard.GetApiKeyUsageTrend)
+		dashboard.GET("/api-keys-trend", h.Admin.Dashboard.GetAPIKeyUsageTrend)
 		dashboard.GET("/users-trend", h.Admin.Dashboard.GetUserUsageTrend)
 		dashboard.POST("/users-usage", h.Admin.Dashboard.GetBatchUsersUsage)
-		dashboard.POST("/api-keys-usage", h.Admin.Dashboard.GetBatchApiKeysUsage)
+		dashboard.POST("/api-keys-usage", h.Admin.Dashboard.GetBatchAPIKeysUsage)
+		dashboard.POST("/aggregation/backfill", h.Admin.Dashboard.BackfillAggregation)
 	}
 }
 
@@ -79,6 +153,10 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		users.POST("/:id/balance", h.Admin.User.UpdateBalance)
 		users.GET("/:id/api-keys", h.Admin.User.GetUserAPIKeys)
 		users.GET("/:id/usage", h.Admin.User.GetUserUsage)
+
+		// User attribute values
+		users.GET("/:id/attributes", h.Admin.UserAttribute.GetUserAttributes)
+		users.PUT("/:id/attributes", h.Admin.UserAttribute.UpdateUserAttributes)
 	}
 }
 
@@ -107,15 +185,19 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
+		accounts.POST("/:id/refresh-tier", h.Admin.Account.RefreshTier)
 		accounts.GET("/:id/stats", h.Admin.Account.GetStats)
 		accounts.POST("/:id/clear-error", h.Admin.Account.ClearError)
 		accounts.GET("/:id/usage", h.Admin.Account.GetUsage)
 		accounts.GET("/:id/today-stats", h.Admin.Account.GetTodayStats)
 		accounts.POST("/:id/clear-rate-limit", h.Admin.Account.ClearRateLimit)
+		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
+		accounts.DELETE("/:id/temp-unschedulable", h.Admin.Account.ClearTempUnschedulable)
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
 		accounts.POST("/batch", h.Admin.Account.BatchCreate)
 		accounts.POST("/batch-update-credentials", h.Admin.Account.BatchUpdateCredentials)
+		accounts.POST("/batch-refresh-tier", h.Admin.Account.BatchRefreshTier)
 		accounts.POST("/bulk-update", h.Admin.Account.BulkUpdate)
 
 		// Claude OAuth routes
@@ -145,6 +227,14 @@ func registerGeminiOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		gemini.POST("/oauth/auth-url", h.Admin.GeminiOAuth.GenerateAuthURL)
 		gemini.POST("/oauth/exchange-code", h.Admin.GeminiOAuth.ExchangeCode)
 		gemini.GET("/oauth/capabilities", h.Admin.GeminiOAuth.GetCapabilities)
+	}
+}
+
+func registerAntigravityOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	antigravity := admin.Group("/antigravity")
+	{
+		antigravity.POST("/oauth/auth-url", h.Admin.AntigravityOAuth.GenerateAuthURL)
+		antigravity.POST("/oauth/exchange-code", h.Admin.AntigravityOAuth.ExchangeCode)
 	}
 }
 
@@ -178,17 +268,32 @@ func registerRedeemCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
+func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	promoCodes := admin.Group("/promo-codes")
+	{
+		promoCodes.GET("", h.Admin.Promo.List)
+		promoCodes.GET("/:id", h.Admin.Promo.GetByID)
+		promoCodes.POST("", h.Admin.Promo.Create)
+		promoCodes.PUT("/:id", h.Admin.Promo.Update)
+		promoCodes.DELETE("/:id", h.Admin.Promo.Delete)
+		promoCodes.GET("/:id/usages", h.Admin.Promo.GetUsages)
+	}
+}
+
 func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	adminSettings := admin.Group("/settings")
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
-		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSmtpConnection)
+		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		// Admin API Key 管理
-		adminSettings.GET("/admin-api-key", h.Admin.Setting.GetAdminApiKey)
-		adminSettings.POST("/admin-api-key/regenerate", h.Admin.Setting.RegenerateAdminApiKey)
-		adminSettings.DELETE("/admin-api-key", h.Admin.Setting.DeleteAdminApiKey)
+		adminSettings.GET("/admin-api-key", h.Admin.Setting.GetAdminAPIKey)
+		adminSettings.POST("/admin-api-key/regenerate", h.Admin.Setting.RegenerateAdminAPIKey)
+		adminSettings.DELETE("/admin-api-key", h.Admin.Setting.DeleteAdminAPIKey)
+		// 流超时处理配置
+		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
+		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
 	}
 }
 
@@ -228,6 +333,18 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("", h.Admin.Usage.List)
 		usage.GET("/stats", h.Admin.Usage.Stats)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)
-		usage.GET("/search-api-keys", h.Admin.Usage.SearchApiKeys)
+		usage.GET("/search-api-keys", h.Admin.Usage.SearchAPIKeys)
+	}
+}
+
+func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	attrs := admin.Group("/user-attributes")
+	{
+		attrs.GET("", h.Admin.UserAttribute.ListDefinitions)
+		attrs.POST("", h.Admin.UserAttribute.CreateDefinition)
+		attrs.POST("/batch", h.Admin.UserAttribute.GetBatchUserAttributes)
+		attrs.PUT("/reorder", h.Admin.UserAttribute.ReorderDefinitions)
+		attrs.PUT("/:id", h.Admin.UserAttribute.UpdateDefinition)
+		attrs.DELETE("/:id", h.Admin.UserAttribute.DeleteDefinition)
 	}
 }

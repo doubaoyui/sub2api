@@ -1,7 +1,39 @@
-import { defineConfig } from 'vite'
+import { defineConfig, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
+
+/**
+ * Vite 插件：开发模式下注入公开配置到 index.html
+ * 与生产模式的后端注入行为保持一致，消除闪烁
+ */
+function injectPublicSettings(): Plugin {
+  const backendUrl = process.env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080'
+
+  return {
+    name: 'inject-public-settings',
+    transformIndexHtml: {
+      order: 'pre',
+      async handler(html) {
+        try {
+          const response = await fetch(`${backendUrl}/api/v1/settings/public`, {
+            signal: AbortSignal.timeout(2000)
+          })
+          if (response.ok) {
+            const data = await response.json()
+            if (data.code === 0 && data.data) {
+              const script = `<script>window.__APP_CONFIG__=${JSON.stringify(data.data)};</script>`
+              return html.replace('</head>', `${script}\n</head>`)
+            }
+          }
+        } catch (e) {
+          console.warn('[vite] 无法获取公开配置，将回退到 API 调用:', (e as Error).message)
+        }
+        return html
+      }
+    }
+  }
+}
 
 export default defineConfig({
   plugins: [
@@ -9,12 +41,20 @@ export default defineConfig({
     checker({
       typescript: true,
       vueTsc: true
-    })
+    }),
+    injectPublicSettings()
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      // 使用 vue-i18n 运行时版本，避免 CSP unsafe-eval 问题
+      'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
     }
+  },
+  define: {
+    // 启用 vue-i18n JIT 编译，在 CSP 环境下处理消息插值
+    // JIT 编译器生成 AST 对象而非 JS 代码，无需 unsafe-eval
+    __INTLIFY_JIT_COMPILATION__: true
   },
   build: {
     outDir: '../backend/internal/web/dist',
@@ -22,14 +62,14 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 3000,
+    port: Number(process.env.VITE_DEV_PORT || 3000),
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080',
         changeOrigin: true
       },
       '/setup': {
-        target: 'http://localhost:8080',
+        target: process.env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080',
         changeOrigin: true
       }
     }

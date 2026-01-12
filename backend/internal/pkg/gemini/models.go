@@ -1,7 +1,6 @@
-package gemini
-
-// This package provides minimal fallback model metadata for Gemini native endpoints.
+// Package gemini provides minimal fallback model metadata for Gemini native endpoints.
 // It is used when upstream model listing is unavailable (e.g. OAuth token missing AI Studio scopes).
+package gemini
 
 type Model struct {
 	Name                       string   `json:"name"`
@@ -18,8 +17,10 @@ func DefaultModels() []Model {
 	methods := []string{"generateContent", "streamGenerateContent"}
 	return []Model{
 		{Name: "models/gemini-3-pro-preview", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3-flash-preview", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-2.5-pro", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-2.5-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-2.0-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.0-flash-lite", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-1.5-pro", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-1.5-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-1.5-flash-8b", SupportedGenerationMethods: methods},

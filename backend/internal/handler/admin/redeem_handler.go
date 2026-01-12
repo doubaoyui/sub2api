@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -30,8 +31,8 @@ type GenerateRedeemCodesRequest struct {
 	Count        int     `json:"count" binding:"required,min=1,max=100"`
 	Type         string  `json:"type" binding:"required,oneof=balance concurrency subscription"`
 	Value        float64 `json:"value" binding:"min=0"`
-	GroupID      *int64  `json:"group_id"`      // 订阅类型必填
-	ValidityDays int     `json:"validity_days"` // 订阅类型使用，默认30天
+	GroupID      *int64  `json:"group_id"`                                    // 订阅类型必填
+	ValidityDays int     `json:"validity_days" binding:"omitempty,max=36500"` // 订阅类型使用，默认30天，最大100年
 }
 
 // List handles listing all redeem codes with pagination
@@ -41,6 +42,11 @@ func (h *RedeemHandler) List(c *gin.Context) {
 	codeType := c.Query("type")
 	status := c.Query("status")
 	search := c.Query("search")
+	// 标准化和验证 search 参数
+	search = strings.TrimSpace(search)
+	if len(search) > 100 {
+		search = search[:100]
+	}
 
 	codes, total, err := h.adminService.ListRedeemCodes(c.Request.Context(), page, pageSize, codeType, status, search)
 	if err != nil {

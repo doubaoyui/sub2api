@@ -12,7 +12,8 @@ import type {
   AccountUsageInfo,
   WindowStats,
   ClaudeModel,
-  AccountUsageStatsResponse
+  AccountUsageStatsResponse,
+  TempUnschedulableStatus
 } from '@/types'
 
 /**
@@ -30,6 +31,9 @@ export async function list(
     type?: string
     status?: string
     search?: string
+  },
+  options?: {
+    signal?: AbortSignal
   }
 ): Promise<PaginatedResponse<Account>> {
   const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/accounts', {
@@ -37,7 +41,8 @@ export async function list(
       page,
       page_size: pageSize,
       ...filters
-    }
+    },
+    signal: options?.signal
   })
   return data
 }
@@ -167,6 +172,30 @@ export async function clearRateLimit(id: number): Promise<{ message: string }> {
 }
 
 /**
+ * Get temporary unschedulable status
+ * @param id - Account ID
+ * @returns Status with detail state if active
+ */
+export async function getTempUnschedulableStatus(id: number): Promise<TempUnschedulableStatus> {
+  const { data } = await apiClient.get<TempUnschedulableStatus>(
+    `/admin/accounts/${id}/temp-unschedulable`
+  )
+  return data
+}
+
+/**
+ * Reset temporary unschedulable status
+ * @param id - Account ID
+ * @returns Success confirmation
+ */
+export async function resetTempUnschedulable(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    `/admin/accounts/${id}/temp-unschedulable`
+  )
+  return data
+}
+
+/**
  * Generate OAuth authorization URL
  * @param endpoint - API endpoint path
  * @param config - Proxy configuration
@@ -246,11 +275,15 @@ export async function bulkUpdate(
 ): Promise<{
   success: number
   failed: number
+  success_ids?: number[]
+  failed_ids?: number[]
   results: Array<{ account_id: number; success: boolean; error?: string }>
-}> {
+  }> {
   const { data } = await apiClient.post<{
     success: number
     failed: number
+    success_ids?: number[]
+    failed_ids?: number[]
     results: Array<{ account_id: number; success: boolean; error?: string }>
   }>('/admin/accounts/bulk-update', {
     account_ids: accountIds,
@@ -328,6 +361,8 @@ export const accountsAPI = {
   getUsage,
   getTodayStats,
   clearRateLimit,
+  getTempUnschedulableStatus,
+  resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
   generateAuthUrl,

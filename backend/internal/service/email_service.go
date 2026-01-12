@@ -5,12 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"math/big"
 	"net/smtp"
 	"strconv"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 var (
@@ -40,8 +41,8 @@ const (
 	maxVerifyCodeAttempts = 5
 )
 
-// SmtpConfig SMTP配置
-type SmtpConfig struct {
+// SMTPConfig SMTP配置
+type SMTPConfig struct {
 	Host     string
 	Port     int
 	Username string
@@ -65,16 +66,16 @@ func NewEmailService(settingRepo SettingRepository, cache EmailCache) *EmailServ
 	}
 }
 
-// GetSmtpConfig 从数据库获取SMTP配置
-func (s *EmailService) GetSmtpConfig(ctx context.Context) (*SmtpConfig, error) {
+// GetSMTPConfig 从数据库获取SMTP配置
+func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	keys := []string{
-		SettingKeySmtpHost,
-		SettingKeySmtpPort,
-		SettingKeySmtpUsername,
-		SettingKeySmtpPassword,
-		SettingKeySmtpFrom,
-		SettingKeySmtpFromName,
-		SettingKeySmtpUseTLS,
+		SettingKeySMTPHost,
+		SettingKeySMTPPort,
+		SettingKeySMTPUsername,
+		SettingKeySMTPPassword,
+		SettingKeySMTPFrom,
+		SettingKeySMTPFromName,
+		SettingKeySMTPUseTLS,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -82,34 +83,34 @@ func (s *EmailService) GetSmtpConfig(ctx context.Context) (*SmtpConfig, error) {
 		return nil, fmt.Errorf("get smtp settings: %w", err)
 	}
 
-	host := settings[SettingKeySmtpHost]
+	host := settings[SettingKeySMTPHost]
 	if host == "" {
 		return nil, ErrEmailNotConfigured
 	}
 
 	port := 587 // 默认端口
-	if portStr := settings[SettingKeySmtpPort]; portStr != "" {
+	if portStr := settings[SettingKeySMTPPort]; portStr != "" {
 		if p, err := strconv.Atoi(portStr); err == nil {
 			port = p
 		}
 	}
 
-	useTLS := settings[SettingKeySmtpUseTLS] == "true"
+	useTLS := settings[SettingKeySMTPUseTLS] == "true"
 
-	return &SmtpConfig{
+	return &SMTPConfig{
 		Host:     host,
 		Port:     port,
-		Username: settings[SettingKeySmtpUsername],
-		Password: settings[SettingKeySmtpPassword],
-		From:     settings[SettingKeySmtpFrom],
-		FromName: settings[SettingKeySmtpFromName],
+		Username: settings[SettingKeySMTPUsername],
+		Password: settings[SettingKeySMTPPassword],
+		From:     settings[SettingKeySMTPFrom],
+		FromName: settings[SettingKeySMTPFromName],
 		UseTLS:   useTLS,
 	}, nil
 }
 
 // SendEmail 发送邮件（使用数据库中保存的配置）
 func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) error {
-	config, err := s.GetSmtpConfig(ctx)
+	config, err := s.GetSMTPConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -117,7 +118,7 @@ func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) 
 }
 
 // SendEmailWithConfig 使用指定配置发送邮件
-func (s *EmailService) SendEmailWithConfig(config *SmtpConfig, to, subject, body string) error {
+func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
 	from := config.From
 	if config.FromName != "" {
 		from = fmt.Sprintf("%s <%s>", config.FromName, config.From)
@@ -140,6 +141,8 @@ func (s *EmailService) SendEmailWithConfig(config *SmtpConfig, to, subject, body
 func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
 	tlsConfig := &tls.Config{
 		ServerName: host,
+		// 强制 TLS 1.2+，避免协议降级导致的弱加密风险。
+		MinVersion: tls.VersionTLS12,
 	}
 
 	conn, err := tls.Dial("tcp", addr, tlsConfig)
@@ -254,7 +257,9 @@ func (s *EmailService) VerifyCode(ctx context.Context, email, code string) error
 	// 验证码不匹配
 	if data.Code != code {
 		data.Attempts++
-		_ = s.cache.SetVerificationCode(ctx, email, data, verifyCodeTTL)
+		if err := s.cache.SetVerificationCode(ctx, email, data, verifyCodeTTL); err != nil {
+			log.Printf("[Email] Failed to update verification attempt count: %v", err)
+		}
 		if data.Attempts >= maxVerifyCodeAttempts {
 			return ErrVerifyCodeMaxAttempts
 		}
@@ -262,7 +267,9 @@ func (s *EmailService) VerifyCode(ctx context.Context, email, code string) error
 	}
 
 	// 验证成功，删除验证码
-	_ = s.cache.DeleteVerificationCode(ctx, email)
+	if err := s.cache.DeleteVerificationCode(ctx, email); err != nil {
+		log.Printf("[Email] Failed to delete verification code after success: %v", err)
+	}
 	return nil
 }
 
@@ -306,12 +313,16 @@ func (s *EmailService) buildVerifyCodeEmailBody(code, siteName string) string {
 `, siteName, code)
 }
 
-// TestSmtpConnectionWithConfig 使用指定配置测试SMTP连接
-func (s *EmailService) TestSmtpConnectionWithConfig(config *SmtpConfig) error {
+// TestSMTPConnectionWithConfig 使用指定配置测试SMTP连接
+func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
 
 	if config.UseTLS {
-		tlsConfig := &tls.Config{ServerName: config.Host}
+		tlsConfig := &tls.Config{
+			ServerName: config.Host,
+			// 与发送逻辑一致，显式要求 TLS 1.2+。
+			MinVersion: tls.VersionTLS12,
+		}
 		conn, err := tls.Dial("tcp", addr, tlsConfig)
 		if err != nil {
 			return fmt.Errorf("tls connection failed: %w", err)

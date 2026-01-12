@@ -6,7 +6,6 @@ type User struct {
 	ID            int64     `json:"id"`
 	Email         string    `json:"email"`
 	Username      string    `json:"username"`
-	Wechat        string    `json:"wechat"`
 	Notes         string    `json:"notes"`
 	Role          string    `json:"role"`
 	Balance       float64   `json:"balance"`
@@ -16,19 +15,21 @@ type User struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
-	ApiKeys       []ApiKey           `json:"api_keys,omitempty"`
+	APIKeys       []APIKey           `json:"api_keys,omitempty"`
 	Subscriptions []UserSubscription `json:"subscriptions,omitempty"`
 }
 
-type ApiKey struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Key       string    `json:"key"`
-	Name      string    `json:"name"`
-	GroupID   *int64    `json:"group_id"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+type APIKey struct {
+	ID          int64     `json:"id"`
+	UserID      int64     `json:"user_id"`
+	Key         string    `json:"key"`
+	Name        string    `json:"name"`
+	GroupID     *int64    `json:"group_id"`
+	Status      string    `json:"status"`
+	IPWhitelist []string  `json:"ip_whitelist"`
+	IPBlacklist []string  `json:"ip_blacklist"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
@@ -48,6 +49,15 @@ type Group struct {
 	WeeklyLimitUSD   *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  *float64 `json:"monthly_limit_usd"`
 
+	// 图片生成计费配置（仅 antigravity 平台使用）
+	ImagePrice1K *float64 `json:"image_price_1k"`
+	ImagePrice2K *float64 `json:"image_price_2k"`
+	ImagePrice4K *float64 `json:"image_price_4k"`
+
+	// Claude Code 客户端限制
+	ClaudeCodeOnly  bool   `json:"claude_code_only"`
+	FallbackGroupID *int64 `json:"fallback_group_id"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -56,26 +66,32 @@ type Group struct {
 }
 
 type Account struct {
-	ID           int64          `json:"id"`
-	Name         string         `json:"name"`
-	Platform     string         `json:"platform"`
-	Type         string         `json:"type"`
-	Credentials  map[string]any `json:"credentials"`
-	Extra        map[string]any `json:"extra"`
-	ProxyID      *int64         `json:"proxy_id"`
-	Concurrency  int            `json:"concurrency"`
-	Priority     int            `json:"priority"`
-	Status       string         `json:"status"`
-	ErrorMessage string         `json:"error_message"`
-	LastUsedAt   *time.Time     `json:"last_used_at"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	ID                 int64          `json:"id"`
+	Name               string         `json:"name"`
+	Notes              *string        `json:"notes"`
+	Platform           string         `json:"platform"`
+	Type               string         `json:"type"`
+	Credentials        map[string]any `json:"credentials"`
+	Extra              map[string]any `json:"extra"`
+	ProxyID            *int64         `json:"proxy_id"`
+	Concurrency        int            `json:"concurrency"`
+	Priority           int            `json:"priority"`
+	Status             string         `json:"status"`
+	ErrorMessage       string         `json:"error_message"`
+	LastUsedAt         *time.Time     `json:"last_used_at"`
+	ExpiresAt          *int64         `json:"expires_at"`
+	AutoPauseOnExpired bool           `json:"auto_pause_on_expired"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
 
 	Schedulable bool `json:"schedulable"`
 
 	RateLimitedAt    *time.Time `json:"rate_limited_at"`
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at"`
 	OverloadUntil    *time.Time `json:"overload_until"`
+
+	TempUnschedulableUntil  *time.Time `json:"temp_unschedulable_until"`
+	TempUnschedulableReason string     `json:"temp_unschedulable_reason"`
 
 	SessionWindowStart  *time.Time `json:"session_window_start"`
 	SessionWindowEnd    *time.Time `json:"session_window_end"`
@@ -137,7 +153,7 @@ type RedeemCode struct {
 type UsageLog struct {
 	ID        int64  `json:"id"`
 	UserID    int64  `json:"user_id"`
-	ApiKeyID  int64  `json:"api_key_id"`
+	APIKeyID  int64  `json:"api_key_id"`
 	AccountID int64  `json:"account_id"`
 	RequestID string `json:"request_id"`
 	Model     string `json:"model"`
@@ -166,13 +182,30 @@ type UsageLog struct {
 	DurationMs   *int `json:"duration_ms"`
 	FirstTokenMs *int `json:"first_token_ms"`
 
+	// 图片生成字段
+	ImageCount int     `json:"image_count"`
+	ImageSize  *string `json:"image_size"`
+
+	// User-Agent
+	UserAgent *string `json:"user_agent"`
+
+	// IP 地址（仅管理员可见）
+	IPAddress *string `json:"ip_address,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 
 	User         *User             `json:"user,omitempty"`
-	ApiKey       *ApiKey           `json:"api_key,omitempty"`
-	Account      *Account          `json:"account,omitempty"`
+	APIKey       *APIKey           `json:"api_key,omitempty"`
+	Account      *AccountSummary   `json:"account,omitempty"` // Use minimal AccountSummary to prevent data leakage
 	Group        *Group            `json:"group,omitempty"`
 	Subscription *UserSubscription `json:"subscription,omitempty"`
+}
+
+// AccountSummary is a minimal account info for usage log display.
+// It intentionally excludes sensitive fields like Credentials, Proxy, etc.
+type AccountSummary struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 type Setting struct {
@@ -216,4 +249,29 @@ type BulkAssignResult struct {
 	FailedCount   int                `json:"failed_count"`
 	Subscriptions []UserSubscription `json:"subscriptions"`
 	Errors        []string           `json:"errors"`
+}
+
+// PromoCode 注册优惠码
+type PromoCode struct {
+	ID          int64      `json:"id"`
+	Code        string     `json:"code"`
+	BonusAmount float64    `json:"bonus_amount"`
+	MaxUses     int        `json:"max_uses"`
+	UsedCount   int        `json:"used_count"`
+	Status      string     `json:"status"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	Notes       string     `json:"notes"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// PromoCodeUsage 优惠码使用记录
+type PromoCodeUsage struct {
+	ID          int64     `json:"id"`
+	PromoCodeID int64     `json:"promo_code_id"`
+	UserID      int64     `json:"user_id"`
+	BonusAmount float64   `json:"bonus_amount"`
+	UsedAt      time.Time `json:"used_at"`
+
+	User *User `json:"user,omitempty"`
 }

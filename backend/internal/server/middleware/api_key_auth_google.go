@@ -4,24 +4,28 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-// ApiKeyAuthGoogle is a Google-style error wrapper for API key auth.
-func ApiKeyAuthGoogle(apiKeyService *service.ApiKeyService) gin.HandlerFunc {
-	return ApiKeyAuthWithSubscriptionGoogle(apiKeyService, nil)
+// APIKeyAuthGoogle is a Google-style error wrapper for API key auth.
+func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) gin.HandlerFunc {
+	return APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, cfg)
 }
 
-// ApiKeyAuthWithSubscriptionGoogle behaves like ApiKeyAuthWithSubscription but returns Google-style errors:
+// APIKeyAuthWithSubscriptionGoogle behaves like ApiKeyAuthWithSubscription but returns Google-style errors:
 // {"error":{"code":401,"message":"...","status":"UNAUTHENTICATED"}}
 //
 // It is intended for Gemini native endpoints (/v1beta) to match Gemini SDK expectations.
-func ApiKeyAuthWithSubscriptionGoogle(apiKeyService *service.ApiKeyService, subscriptionService *service.SubscriptionService) gin.HandlerFunc {
+func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if v := strings.TrimSpace(c.Query("api_key")); v != "" {
+			abortWithGoogleError(c, 400, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
+			return
+		}
 		apiKeyString := extractAPIKeyFromRequest(c)
 		if apiKeyString == "" {
 			abortWithGoogleError(c, 401, "API key is required")
@@ -30,7 +34,7 @@ func ApiKeyAuthWithSubscriptionGoogle(apiKeyService *service.ApiKeyService, subs
 
 		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+			if errors.Is(err, service.ErrAPIKeyNotFound) {
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
@@ -48,6 +52,19 @@ func ApiKeyAuthWithSubscriptionGoogle(apiKeyService *service.ApiKeyService, subs
 		}
 		if !apiKey.User.IsActive() {
 			abortWithGoogleError(c, 401, "User account is not active")
+			return
+		}
+
+		// 简易模式：跳过余额和订阅检查
+		if cfg.RunMode == config.RunModeSimple {
+			c.Set(string(ContextKeyAPIKey), apiKey)
+			c.Set(string(ContextKeyUser), AuthSubject{
+				UserID:      apiKey.User.ID,
+				Concurrency: apiKey.User.Concurrency,
+			})
+			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+			setGroupContext(c, apiKey.Group)
+			c.Next()
 			return
 		}
 
@@ -80,8 +97,13 @@ func ApiKeyAuthWithSubscriptionGoogle(apiKeyService *service.ApiKeyService, subs
 			}
 		}
 
-		c.Set(string(ContextKeyApiKey), apiKey)
-		c.Set(string(ContextKeyUser), apiKey.User)
+		c.Set(string(ContextKeyAPIKey), apiKey)
+		c.Set(string(ContextKeyUser), AuthSubject{
+			UserID:      apiKey.User.ID,
+			Concurrency: apiKey.User.Concurrency,
+		})
+		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+		setGroupContext(c, apiKey.Group)
 		c.Next()
 	}
 }
@@ -100,13 +122,16 @@ func extractAPIKeyFromRequest(c *gin.Context) string {
 	if v := strings.TrimSpace(c.GetHeader("x-goog-api-key")); v != "" {
 		return v
 	}
-	if v := strings.TrimSpace(c.Query("key")); v != "" {
-		return v
-	}
-	if v := strings.TrimSpace(c.Query("api_key")); v != "" {
-		return v
+	if allowGoogleQueryKey(c.Request.URL.Path) {
+		if v := strings.TrimSpace(c.Query("key")); v != "" {
+			return v
+		}
 	}
 	return ""
+}
+
+func allowGoogleQueryKey(path string) bool {
+	return strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta")
 }
 
 func abortWithGoogleError(c *gin.Context, status int, message string) {

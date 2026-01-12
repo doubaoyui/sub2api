@@ -2,12 +2,31 @@
  * Core Type Definitions for Sub2API Frontend
  */
 
+// ==================== Common Types ====================
+
+export interface SelectOption {
+  value: string | number | boolean | null
+  label: string
+  [key: string]: any // Support extra properties for custom templates
+}
+
+export interface BasePaginationResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface FetchOptions {
+  signal?: AbortSignal
+}
+
 // ==================== User & Auth Types ====================
 
 export interface User {
   id: number
   username: string
-  wechat: string
   notes: string
   email: string
   role: 'admin' | 'user' // User role for authorization
@@ -31,6 +50,7 @@ export interface RegisterRequest {
   password: string
   verify_code?: string
   turnstile_token?: string
+  promo_code?: string
 }
 
 export interface SendVerifyCodeRequest {
@@ -54,13 +74,19 @@ export interface PublicSettings {
   api_base_url: string
   contact_info: string
   doc_url: string
+  home_content: string
+  linuxdo_oauth_enabled: boolean
   version: string
 }
 
 export interface AuthResponse {
   access_token: string
   token_type: string
-  user: User
+  user: User & { run_mode?: 'standard' | 'simple' }
+}
+
+export interface CurrentUserResponse extends User {
+  run_mode?: 'standard' | 'simple'
 }
 
 // ==================== Subscription Types ====================
@@ -220,7 +246,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -236,6 +262,13 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
+  // 图片生成计费配置（仅 antigravity 平台使用）
+  image_price_1k: number | null
+  image_price_2k: number | null
+  image_price_4k: number | null
+  // Claude Code 客户端限制
+  claude_code_only: boolean
+  fallback_group_id: number | null
   account_count?: number
   created_at: string
   updated_at: string
@@ -248,6 +281,8 @@ export interface ApiKey {
   name: string
   group_id: number | null
   status: 'active' | 'inactive'
+  ip_whitelist: string[]
+  ip_blacklist: string[]
   created_at: string
   updated_at: string
   group?: Group
@@ -256,13 +291,17 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
-  custom_key?: string // 可选的自定义API Key
+  custom_key?: string // Optional custom API Key
+  ip_whitelist?: string[]
+  ip_blacklist?: string[]
 }
 
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
   status?: 'active' | 'inactive'
+  ip_whitelist?: string[]
+  ip_blacklist?: string[]
 }
 
 export interface CreateGroupRequest {
@@ -271,6 +310,15 @@ export interface CreateGroupRequest {
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
+  subscription_type?: SubscriptionType
+  daily_limit_usd?: number | null
+  weekly_limit_usd?: number | null
+  monthly_limit_usd?: number | null
+  image_price_1k?: number | null
+  image_price_2k?: number | null
+  image_price_4k?: number | null
+  claude_code_only?: boolean
+  fallback_group_id?: number | null
 }
 
 export interface UpdateGroupRequest {
@@ -280,14 +328,23 @@ export interface UpdateGroupRequest {
   rate_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
+  subscription_type?: SubscriptionType
+  daily_limit_usd?: number | null
+  weekly_limit_usd?: number | null
+  monthly_limit_usd?: number | null
+  image_price_1k?: number | null
+  image_price_2k?: number | null
+  image_price_4k?: number | null
+  claude_code_only?: boolean
+  fallback_group_id?: number | null
 }
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
-export type ProxyProtocol = 'http' | 'https' | 'socks5'
+export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
 // Claude Model type (returned by /v1/models and account models API)
 export interface ClaudeModel {
@@ -311,9 +368,58 @@ export interface Proxy {
   updated_at: string
 }
 
+// Gemini credentials structure for OAuth and API Key authentication
+export interface GeminiCredentials {
+  // API Key authentication
+  api_key?: string
+
+  // OAuth authentication
+  access_token?: string
+  refresh_token?: string
+  oauth_type?: 'code_assist' | 'google_one' | 'ai_studio' | string
+  tier_id?:
+    | 'google_one_free'
+    | 'google_ai_pro'
+    | 'google_ai_ultra'
+    | 'gcp_standard'
+    | 'gcp_enterprise'
+    | 'aistudio_free'
+    | 'aistudio_paid'
+    | 'LEGACY'
+    | 'PRO'
+    | 'ULTRA'
+    | string
+  project_id?: string
+  token_type?: string
+  scope?: string
+  expires_at?: string
+}
+
+export interface TempUnschedulableRule {
+  error_code: number
+  keywords: string[]
+  duration_minutes: number
+  description: string
+}
+
+export interface TempUnschedulableState {
+  until_unix: number
+  triggered_at_unix: number
+  status_code: number
+  matched_keyword: string
+  rule_index: number
+  error_message: string
+}
+
+export interface TempUnschedulableStatus {
+  active: boolean
+  state?: TempUnschedulableState
+}
+
 export interface Account {
   id: number
   name: string
+  notes?: string | null
   platform: AccountPlatform
   type: AccountType
   credentials?: Record<string, unknown>
@@ -325,6 +431,8 @@ export interface Account {
   status: 'active' | 'inactive' | 'error'
   error_message: string | null
   last_used_at: string | null
+  expires_at: number | null
+  auto_pause_on_expired: boolean
   created_at: string
   updated_at: string
   proxy?: Proxy
@@ -336,6 +444,8 @@ export interface Account {
   rate_limited_at: string | null
   rate_limit_reset_at: string | null
   overload_until: string | null
+  temp_unschedulable_until: string | null
+  temp_unschedulable_reason: string | null
 
   // Session window fields (5-hour window)
   session_window_start: string | null
@@ -355,6 +465,14 @@ export interface UsageProgress {
   resets_at: string | null
   remaining_seconds: number
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
+  used_requests?: number
+  limit_requests?: number
+}
+
+// Antigravity 单个模型的配额信息
+export interface AntigravityModelQuota {
+  utilization: number // 使用率 0-100
+  reset_time: string  // 重置时间 ISO8601
 }
 
 export interface AccountUsageInfo {
@@ -362,6 +480,13 @@ export interface AccountUsageInfo {
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
   seven_day_sonnet: UsageProgress | null
+  gemini_shared_daily?: UsageProgress | null
+  gemini_pro_daily?: UsageProgress | null
+  gemini_flash_daily?: UsageProgress | null
+  gemini_shared_minute?: UsageProgress | null
+  gemini_pro_minute?: UsageProgress | null
+  gemini_flash_minute?: UsageProgress | null
+  antigravity_quota?: Record<string, AntigravityModelQuota> | null
 }
 
 // OpenAI Codex usage snapshot (from response headers)
@@ -389,26 +514,35 @@ export interface CodexUsageSnapshot {
 
 export interface CreateAccountRequest {
   name: string
+  notes?: string | null
   platform: AccountPlatform
   type: AccountType
   credentials: Record<string, unknown>
-  extra?: Record<string, string>
+  extra?: Record<string, unknown>
   proxy_id?: number | null
   concurrency?: number
   priority?: number
   group_ids?: number[]
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  confirm_mixed_channel_risk?: boolean
 }
 
 export interface UpdateAccountRequest {
   name?: string
+  notes?: string | null
   type?: AccountType
   credentials?: Record<string, unknown>
-  extra?: Record<string, string>
+  extra?: Record<string, unknown>
   proxy_id?: number | null
   concurrency?: number
   priority?: number
+  schedulable?: boolean
   status?: 'active' | 'inactive'
   group_ids?: number[]
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  confirm_mixed_channel_risk?: boolean
 }
 
 export interface CreateProxyRequest {
@@ -434,30 +568,53 @@ export interface UpdateProxyRequest {
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription'
 
-// 消费类型: 0=钱包余额, 1=订阅套餐
-export type BillingType = 0 | 1
-
 export interface UsageLog {
   id: number
   user_id: number
   api_key_id: number
   account_id: number | null
+  request_id: string
   model: string
+
+  group_id: number | null
+  subscription_id: number | null
+
   input_tokens: number
   output_tokens: number
   cache_creation_tokens: number
   cache_read_tokens: number
+  cache_creation_5m_tokens: number
+  cache_creation_1h_tokens: number
+
+  input_cost: number
+  output_cost: number
+  cache_creation_cost: number
+  cache_read_cost: number
   total_cost: number
   actual_cost: number
   rate_multiplier: number
-  billing_type: BillingType
+
   stream: boolean
   duration_ms: number
   first_token_ms: number | null
+
+  // 图片生成字段
+  image_count: number
+  image_size: string | null
+
+  // User-Agent
+  user_agent: string | null
+
+  // IP 地址（仅管理员可见）
+  ip_address: string | null
+
   created_at: string
+
   user?: User
   api_key?: ApiKey
   account?: Account
+  group?: Group
+  subscription?: UserSubscription
 }
 
 export interface RedeemCode {
@@ -495,6 +652,9 @@ export interface DashboardStats {
   total_users: number
   today_new_users: number // 今日新增用户数
   active_users: number // 今日有请求的用户数
+  hourly_active_users: number // 当前小时活跃用户数（UTC）
+  stats_updated_at: string // 统计更新时间（UTC RFC3339）
+  stats_stale: boolean // 统计是否过期
 
   // API Key 统计
   total_api_keys: number
@@ -596,7 +756,6 @@ export interface UpdateUserRequest {
   email?: string
   password?: string
   username?: string
-  wechat?: string
   notes?: string
   role?: 'admin' | 'user'
   balance?: number
@@ -677,6 +836,10 @@ export interface UsageQueryParams {
   page_size?: number
   api_key_id?: number
   user_id?: number
+  account_id?: number
+  group_id?: number
+  model?: string
+  stream?: boolean
   start_date?: string
   end_date?: string
 }
@@ -727,4 +890,119 @@ export interface AccountUsageStatsResponse {
   history: AccountUsageHistory[]
   summary: AccountUsageSummary
   models: ModelStat[]
+}
+
+// ==================== User Attribute Types ====================
+
+export type UserAttributeType = 'text' | 'textarea' | 'number' | 'email' | 'url' | 'date' | 'select' | 'multi_select'
+
+export interface UserAttributeOption {
+  value: string
+  label: string
+  [key: string]: unknown
+}
+
+export interface UserAttributeValidation {
+  min_length?: number
+  max_length?: number
+  min?: number
+  max?: number
+  pattern?: string
+  message?: string
+}
+
+export interface UserAttributeDefinition {
+  id: number
+  key: string
+  name: string
+  description: string
+  type: UserAttributeType
+  options: UserAttributeOption[]
+  required: boolean
+  validation: UserAttributeValidation
+  placeholder: string
+  display_order: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UserAttributeValue {
+  id: number
+  user_id: number
+  attribute_id: number
+  value: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateUserAttributeRequest {
+  key: string
+  name: string
+  description?: string
+  type: UserAttributeType
+  options?: UserAttributeOption[]
+  required?: boolean
+  validation?: UserAttributeValidation
+  placeholder?: string
+  display_order?: number
+  enabled?: boolean
+}
+
+export interface UpdateUserAttributeRequest {
+  key?: string
+  name?: string
+  description?: string
+  type?: UserAttributeType
+  options?: UserAttributeOption[]
+  required?: boolean
+  validation?: UserAttributeValidation
+  placeholder?: string
+  display_order?: number
+  enabled?: boolean
+}
+
+export interface UserAttributeValuesMap {
+  [attributeId: number]: string
+}
+
+// ==================== Promo Code Types ====================
+
+export interface PromoCode {
+  id: number
+  code: string
+  bonus_amount: number
+  max_uses: number
+  used_count: number
+  status: 'active' | 'disabled'
+  expires_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PromoCodeUsage {
+  id: number
+  promo_code_id: number
+  user_id: number
+  bonus_amount: number
+  used_at: string
+  user?: User
+}
+
+export interface CreatePromoCodeRequest {
+  code?: string
+  bonus_amount: number
+  max_uses?: number
+  expires_at?: number | null
+  notes?: string
+}
+
+export interface UpdatePromoCodeRequest {
+  code?: string
+  bonus_amount?: number
+  max_uses?: number
+  status?: 'active' | 'disabled'
+  expires_at?: number | null
+  notes?: string
 }

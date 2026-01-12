@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -26,20 +27,26 @@ func NewGroupHandler(adminService service.AdminService) *GroupHandler {
 type CreateGroupRequest struct {
 	Name             string   `json:"name" binding:"required"`
 	Description      string   `json:"description"`
-	Platform         string   `json:"platform" binding:"omitempty,oneof=anthropic openai gemini"`
+	Platform         string   `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   float64  `json:"rate_multiplier"`
 	IsExclusive      bool     `json:"is_exclusive"`
 	SubscriptionType string   `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`
 	WeeklyLimitUSD   *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  *float64 `json:"monthly_limit_usd"`
+	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	ImagePrice1K    *float64 `json:"image_price_1k"`
+	ImagePrice2K    *float64 `json:"image_price_2k"`
+	ImagePrice4K    *float64 `json:"image_price_4k"`
+	ClaudeCodeOnly  bool     `json:"claude_code_only"`
+	FallbackGroupID *int64   `json:"fallback_group_id"`
 }
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
 	Name             string   `json:"name"`
 	Description      string   `json:"description"`
-	Platform         string   `json:"platform" binding:"omitempty,oneof=anthropic openai gemini"`
+	Platform         string   `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   *float64 `json:"rate_multiplier"`
 	IsExclusive      *bool    `json:"is_exclusive"`
 	Status           string   `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -47,6 +54,12 @@ type UpdateGroupRequest struct {
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`
 	WeeklyLimitUSD   *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  *float64 `json:"monthly_limit_usd"`
+	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	ImagePrice1K    *float64 `json:"image_price_1k"`
+	ImagePrice2K    *float64 `json:"image_price_2k"`
+	ImagePrice4K    *float64 `json:"image_price_4k"`
+	ClaudeCodeOnly  *bool    `json:"claude_code_only"`
+	FallbackGroupID *int64   `json:"fallback_group_id"`
 }
 
 // List handles listing all groups with pagination
@@ -55,6 +68,12 @@ func (h *GroupHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
 	platform := c.Query("platform")
 	status := c.Query("status")
+	search := c.Query("search")
+	// 标准化和验证 search 参数
+	search = strings.TrimSpace(search)
+	if len(search) > 100 {
+		search = search[:100]
+	}
 	isExclusiveStr := c.Query("is_exclusive")
 
 	var isExclusive *bool
@@ -63,7 +82,7 @@ func (h *GroupHandler) List(c *gin.Context) {
 		isExclusive = &val
 	}
 
-	groups, total, err := h.adminService.ListGroups(c.Request.Context(), page, pageSize, platform, status, isExclusive)
+	groups, total, err := h.adminService.ListGroups(c.Request.Context(), page, pageSize, platform, status, search, isExclusive)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -139,6 +158,11 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		DailyLimitUSD:    req.DailyLimitUSD,
 		WeeklyLimitUSD:   req.WeeklyLimitUSD,
 		MonthlyLimitUSD:  req.MonthlyLimitUSD,
+		ImagePrice1K:     req.ImagePrice1K,
+		ImagePrice2K:     req.ImagePrice2K,
+		ImagePrice4K:     req.ImagePrice4K,
+		ClaudeCodeOnly:   req.ClaudeCodeOnly,
+		FallbackGroupID:  req.FallbackGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -174,6 +198,11 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		DailyLimitUSD:    req.DailyLimitUSD,
 		WeeklyLimitUSD:   req.WeeklyLimitUSD,
 		MonthlyLimitUSD:  req.MonthlyLimitUSD,
+		ImagePrice1K:     req.ImagePrice1K,
+		ImagePrice2K:     req.ImagePrice2K,
+		ImagePrice4K:     req.ImagePrice4K,
+		ClaudeCodeOnly:   req.ClaudeCodeOnly,
+		FallbackGroupID:  req.FallbackGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -237,9 +266,9 @@ func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
 		return
 	}
 
-	outKeys := make([]dto.ApiKey, 0, len(keys))
+	outKeys := make([]dto.APIKey, 0, len(keys))
 	for i := range keys {
-		outKeys = append(outKeys, *dto.ApiKeyFromService(&keys[i]))
+		outKeys = append(outKeys, *dto.APIKeyFromService(&keys[i]))
 	}
 	response.Paginated(c, outKeys, total, page, pageSize)
 }

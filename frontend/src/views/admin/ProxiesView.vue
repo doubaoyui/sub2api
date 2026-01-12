@@ -1,86 +1,65 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <!-- Page Header Actions -->
-      <div class="flex justify-end gap-3">
-        <button
-          @click="loadProxies"
-          :disabled="loading"
-          class="btn btn-secondary"
-          :title="t('common.refresh')"
-        >
-          <svg
-            :class="['h-5 w-5', loading ? 'animate-spin' : '']"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
-            />
-          </svg>
-        </button>
-        <button @click="showCreateModal = true" class="btn btn-primary">
-          <svg
-            class="mr-2 h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          {{ t('admin.proxies.createProxy') }}
-        </button>
-      </div>
+    <TablePageLayout>
+      <template #filters>
+        <!-- Top Toolbar: Left (search + filters) / Right (actions) -->
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <!-- Left: Fuzzy search + filters (wrap to multiple lines) -->
+          <div class="flex flex-1 flex-wrap items-center gap-3">
+            <!-- Search -->
+            <div class="relative w-full sm:w-64">
+              <Icon
+                name="search"
+                size="md"
+                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+              />
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="t('admin.proxies.searchProxies')"
+                class="input pl-10"
+                @input="handleSearch"
+              />
+            </div>
 
-      <!-- Search and Filters -->
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div class="relative max-w-md flex-1">
-          <svg
-            class="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            stroke-width="1.5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-            />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            :placeholder="t('admin.proxies.searchProxies')"
-            class="input pl-10"
-            @input="handleSearch"
-          />
-        </div>
-        <div class="flex flex-wrap gap-3">
-          <Select
-            v-model="filters.protocol"
-            :options="protocolOptions"
-            :placeholder="t('admin.proxies.allProtocols')"
-            class="w-40"
-            @change="loadProxies"
-          />
-          <Select
-            v-model="filters.status"
-            :options="statusOptions"
-            :placeholder="t('admin.proxies.allStatus')"
-            class="w-36"
-            @change="loadProxies"
-          />
-        </div>
-      </div>
+            <!-- Filters -->
+            <div class="w-full sm:w-40">
+              <Select
+                v-model="filters.protocol"
+                :options="protocolOptions"
+                :placeholder="t('admin.proxies.allProtocols')"
+                @change="loadProxies"
+              />
+            </div>
+            <div class="w-full sm:w-36">
+              <Select
+                v-model="filters.status"
+                :options="statusOptions"
+                :placeholder="t('admin.proxies.allStatus')"
+                @change="loadProxies"
+              />
+            </div>
+          </div>
 
-      <!-- Proxies Table -->
-      <div class="card overflow-hidden">
+          <!-- Right: Actions -->
+          <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+            <button
+              @click="loadProxies"
+              :disabled="loading"
+              class="btn btn-secondary"
+              :title="t('common.refresh')"
+            >
+              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+            </button>
+            <button @click="showCreateModal = true" class="btn btn-primary">
+              <Icon name="plus" size="md" class="mr-2" />
+              {{ t('admin.proxies.createProxy') }}
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template #table>
         <DataTable :columns="columns" :data="proxies" :loading="loading">
           <template #cell-name="{ value }">
             <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -89,7 +68,7 @@
           <template #cell-protocol="{ value }">
             <span
               v-if="value"
-              :class="['badge', value === 'socks5' ? 'badge-primary' : 'badge-gray']"
+              :class="['badge', value.startsWith('socks5') ? 'badge-primary' : 'badge-gray']"
             >
               {{ value.toUpperCase() }}
             </span>
@@ -102,7 +81,15 @@
 
           <template #cell-status="{ value }">
             <span :class="['badge', value === 'active' ? 'badge-success' : 'badge-danger']">
-              {{ value }}
+              {{ t('admin.accounts.status.' + value) }}
+            </span>
+          </template>
+
+          <template #cell-account_count="{ value }">
+            <span
+              class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+            >
+              {{ t('admin.groups.accountsCount', { count: value || 0 }) }}
             </span>
           </template>
 
@@ -111,8 +98,7 @@
               <button
                 @click="handleTestConnection(row)"
                 :disabled="testingProxyIds.has(row.id)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
-                :title="t('admin.proxies.testConnection')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
               >
                 <svg
                   v-if="testingProxyIds.has(row.id)"
@@ -134,58 +120,22 @@
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   ></path>
                 </svg>
-                <svg
-                  v-else
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+                <Icon v-else name="checkCircle" size="sm" />
+                <span class="text-xs">{{ t('admin.proxies.testConnection') }}</span>
               </button>
               <button
                 @click="handleEdit(row)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                :title="t('common.edit')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
-                  />
-                </svg>
+                <Icon name="edit" size="sm" />
+                <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
               <button
                 @click="handleDelete(row)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                :title="t('common.delete')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                  />
-                </svg>
+                <Icon name="trash" size="sm" />
+                <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
             </div>
           </template>
@@ -199,23 +149,25 @@
             />
           </template>
         </DataTable>
-      </div>
+      </template>
 
-      <!-- Pagination -->
-      <Pagination
-        v-if="pagination.total > 0"
-        :page="pagination.page"
-        :total="pagination.total"
-        :page-size="pagination.page_size"
-        @update:page="handlePageChange"
-      />
-    </div>
+      <template #pagination>
+        <Pagination
+          v-if="pagination.total > 0"
+          :page="pagination.page"
+          :total="pagination.total"
+          :page-size="pagination.page_size"
+          @update:page="handlePageChange"
+          @update:pageSize="handlePageSizeChange"
+        />
+      </template>
+    </TablePageLayout>
 
     <!-- Create Proxy Modal -->
-    <Modal
+    <BaseDialog
       :show="showCreateModal"
       :title="t('admin.proxies.createProxy')"
-      size="lg"
+      width="normal"
       @close="closeCreateModal"
     >
       <!-- Tab Switch -->
@@ -230,15 +182,7 @@
               : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
           ]"
         >
-          <svg
-            class="mr-1.5 inline h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
+          <Icon name="plus" size="sm" class="mr-1.5 inline" />
           {{ t('admin.proxies.standardAdd') }}
         </button>
         <button
@@ -269,7 +213,12 @@
       </div>
 
       <!-- Standard Add Form -->
-      <form v-if="createMode === 'standard'" @submit.prevent="handleCreateProxy" class="space-y-5">
+      <form
+        v-if="createMode === 'standard'"
+        id="create-proxy-form"
+        @submit.prevent="handleCreateProxy"
+        class="space-y-5"
+      >
         <div>
           <label class="input-label">{{ t('admin.proxies.name') }}</label>
           <input
@@ -291,7 +240,7 @@
               v-model="createForm.host"
               type="text"
               required
-              placeholder="proxy.example.com"
+              :placeholder="t('admin.proxies.form.hostPlaceholder')"
               class="input"
             />
           </div>
@@ -303,7 +252,7 @@
               required
               min="1"
               max="65535"
-              placeholder="8080"
+              :placeholder="t('admin.proxies.form.portPlaceholder')"
               class="input"
             />
           </div>
@@ -327,34 +276,6 @@
           />
         </div>
 
-        <div class="flex justify-end gap-3 pt-4">
-          <button @click="closeCreateModal" type="button" class="btn btn-secondary">
-            {{ t('common.cancel') }}
-          </button>
-          <button type="submit" :disabled="submitting" class="btn btn-primary">
-            <svg
-              v-if="submitting"
-              class="-ml-1 mr-2 h-4 w-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            {{ submitting ? t('admin.proxies.creating') : t('common.create') }}
-          </button>
-        </div>
       </form>
 
       <!-- Batch Add Form -->
@@ -375,39 +296,20 @@
 
         <!-- Parse Result -->
         <div v-if="batchParseResult.total > 0" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
-          <div class="flex items-center gap-4 text-sm">
-            <div class="flex items-center gap-1.5">
-              <svg
-                class="h-4 w-4 text-primary-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+            <div class="flex items-center gap-4 text-sm">
+              <div class="flex items-center gap-1.5">
+              <Icon name="checkCircle" size="sm" :stroke-width="2" class="text-primary-500" />
               <span class="text-gray-700 dark:text-gray-300">
                 {{ t('admin.proxies.parsedCount', { count: batchParseResult.valid }) }}
               </span>
             </div>
             <div v-if="batchParseResult.invalid > 0" class="flex items-center gap-1.5">
-              <svg
-                class="h-4 w-4 text-amber-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                />
-              </svg>
+              <Icon
+                name="exclamationCircle"
+                size="sm"
+                :stroke-width="2"
+                class="text-amber-500"
+              />
               <span class="text-amber-600 dark:text-amber-400">
                 {{ t('admin.proxies.invalidCount', { count: batchParseResult.invalid }) }}
               </span>
@@ -433,11 +335,44 @@
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 pt-4">
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
           <button @click="closeCreateModal" type="button" class="btn btn-secondary">
             {{ t('common.cancel') }}
           </button>
           <button
+            v-if="createMode === 'standard'"
+            type="submit"
+            form="create-proxy-form"
+            :disabled="submitting"
+            class="btn btn-primary"
+          >
+            <svg
+              v-if="submitting"
+              class="-ml-1 mr-2 h-4 w-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            {{ submitting ? t('admin.proxies.creating') : t('common.create') }}
+          </button>
+          <button
+            v-else
             @click="handleBatchCreate"
             type="button"
             :disabled="submitting || batchParseResult.valid === 0"
@@ -470,17 +405,22 @@
             }}
           </button>
         </div>
-      </div>
-    </Modal>
+      </template>
+    </BaseDialog>
 
     <!-- Edit Proxy Modal -->
-    <Modal
+    <BaseDialog
       :show="showEditModal"
       :title="t('admin.proxies.editProxy')"
-      size="lg"
+      width="normal"
       @close="closeEditModal"
     >
-      <form v-if="editingProxy" @submit.prevent="handleUpdateProxy" class="space-y-5">
+      <form
+        v-if="editingProxy"
+        id="edit-proxy-form"
+        @submit.prevent="handleUpdateProxy"
+        class="space-y-5"
+      >
         <div>
           <label class="input-label">{{ t('admin.proxies.name') }}</label>
           <input v-model="editForm.name" type="text" required class="input" />
@@ -524,11 +464,20 @@
           <Select v-model="editForm.status" :options="editStatusOptions" />
         </div>
 
-        <div class="flex justify-end gap-3 pt-4">
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
           <button @click="closeEditModal" type="button" class="btn btn-secondary">
             {{ t('common.cancel') }}
           </button>
-          <button type="submit" :disabled="submitting" class="btn btn-primary">
+          <button
+            v-if="editingProxy"
+            type="submit"
+            form="edit-proxy-form"
+            :disabled="submitting"
+            class="btn btn-primary"
+          >
             <svg
               v-if="submitting"
               class="-ml-1 mr-2 h-4 w-4 animate-spin"
@@ -552,8 +501,8 @@
             {{ submitting ? t('admin.proxies.updating') : t('common.update') }}
           </button>
         </div>
-      </form>
-    </Modal>
+      </template>
+    </BaseDialog>
 
     <!-- Delete Confirmation Dialog -->
     <ConfirmDialog
@@ -570,19 +519,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { Proxy, ProxyProtocol } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
-import Modal from '@/components/common/Modal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -591,6 +542,7 @@ const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.proxies.columns.name'), sortable: true },
   { key: 'protocol', label: t('admin.proxies.columns.protocol'), sortable: true },
   { key: 'address', label: t('admin.proxies.columns.address'), sortable: false },
+  { key: 'account_count', label: t('admin.proxies.columns.accounts'), sortable: true },
   { key: 'status', label: t('admin.proxies.columns.status'), sortable: true },
   { key: 'actions', label: t('admin.proxies.columns.actions'), sortable: false }
 ])
@@ -600,25 +552,27 @@ const protocolOptions = computed(() => [
   { value: '', label: t('admin.proxies.allProtocols') },
   { value: 'http', label: 'HTTP' },
   { value: 'https', label: 'HTTPS' },
-  { value: 'socks5', label: 'SOCKS5' }
+  { value: 'socks5', label: 'SOCKS5' },
+  { value: 'socks5h', label: 'SOCKS5H' }
 ])
 
 const statusOptions = computed(() => [
   { value: '', label: t('admin.proxies.allStatus') },
-  { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'active', label: t('admin.accounts.status.active') },
+  { value: 'inactive', label: t('admin.accounts.status.inactive') }
 ])
 
 // Form options
-const protocolSelectOptions = [
-  { value: 'http', label: 'HTTP' },
-  { value: 'https', label: 'HTTPS' },
-  { value: 'socks5', label: 'SOCKS5' }
-]
+const protocolSelectOptions = computed(() => [
+  { value: 'http', label: t('admin.proxies.protocols.http') },
+  { value: 'https', label: t('admin.proxies.protocols.https') },
+  { value: 'socks5', label: t('admin.proxies.protocols.socks5') },
+  { value: 'socks5h', label: t('admin.proxies.protocols.socks5h') }
+])
 
 const editStatusOptions = computed(() => [
-  { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'active', label: t('admin.accounts.status.active') },
+  { value: 'inactive', label: t('admin.accounts.status.inactive') }
 ])
 
 const proxies = ref<Proxy[]>([])
@@ -679,22 +633,44 @@ const editForm = reactive({
   status: 'active' as 'active' | 'inactive'
 })
 
+let abortController: AbortController | null = null
+
+const isAbortError = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false
+  const maybeError = error as { name?: string; code?: string }
+  return maybeError.name === 'AbortError' || maybeError.code === 'ERR_CANCELED'
+}
+
 const loadProxies = async () => {
+  if (abortController) {
+    abortController.abort()
+  }
+  const currentAbortController = new AbortController()
+  abortController = currentAbortController
   loading.value = true
   try {
     const response = await adminAPI.proxies.list(pagination.page, pagination.page_size, {
       protocol: filters.protocol || undefined,
       status: filters.status as any,
       search: searchQuery.value || undefined
-    })
+    }, { signal: currentAbortController.signal })
+    if (currentAbortController.signal.aborted || abortController !== currentAbortController) {
+      return
+    }
     proxies.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
   } catch (error) {
+    if (isAbortError(error)) {
+      return
+    }
     appStore.showError(t('admin.proxies.failedToLoad'))
     console.error('Error loading proxies:', error)
   } finally {
-    loading.value = false
+    if (abortController === currentAbortController) {
+      loading.value = false
+      abortController = null
+    }
   }
 }
 
@@ -709,6 +685,12 @@ const handleSearch = () => {
 
 const handlePageChange = (page: number) => {
   pagination.page = page
+  loadProxies()
+}
+
+const handlePageSizeChange = (pageSize: number) => {
+  pagination.page_size = pageSize
+  pagination.page = 1
   loadProxies()
 }
 
@@ -742,8 +724,8 @@ const parseProxyUrl = (
   const trimmed = line.trim()
   if (!trimmed) return null
 
-  // Regex to parse proxy URL
-  const regex = /^(https?|socks5):\/\/(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$/i
+  // Regex to parse proxy URL (supports http, https, socks5, socks5h)
+  const regex = /^(https?|socks5h?):\/\/(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$/i
   const match = trimmed.match(regex)
 
   if (!match) return null
@@ -819,6 +801,18 @@ const handleBatchCreate = async () => {
 }
 
 const handleCreateProxy = async () => {
+  if (!createForm.name.trim()) {
+    appStore.showError(t('admin.proxies.nameRequired'))
+    return
+  }
+  if (!createForm.host.trim()) {
+    appStore.showError(t('admin.proxies.hostRequired'))
+    return
+  }
+  if (createForm.port < 1 || createForm.port > 65535) {
+    appStore.showError(t('admin.proxies.portInvalid'))
+    return
+  }
   submitting.value = true
   try {
     await adminAPI.proxies.create({
@@ -859,6 +853,18 @@ const closeEditModal = () => {
 
 const handleUpdateProxy = async () => {
   if (!editingProxy.value) return
+  if (!editForm.name.trim()) {
+    appStore.showError(t('admin.proxies.nameRequired'))
+    return
+  }
+  if (!editForm.host.trim()) {
+    appStore.showError(t('admin.proxies.hostRequired'))
+    return
+  }
+  if (editForm.port < 1 || editForm.port > 65535) {
+    appStore.showError(t('admin.proxies.portInvalid'))
+    return
+  }
 
   submitting.value = true
   try {
@@ -935,5 +941,10 @@ const confirmDelete = async () => {
 
 onMounted(() => {
   loadProxies()
+})
+
+onUnmounted(() => {
+  clearTimeout(searchTimeout)
+  abortController?.abort()
 })
 </script>

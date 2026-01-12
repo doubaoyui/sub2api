@@ -3,30 +3,32 @@
  * 参考 CRS 项目的 format.js 实现
  */
 
+import { i18n, getLocale } from '@/i18n'
+
 /**
  * 格式化相对时间
  * @param date 日期字符串或 Date 对象
  * @returns 相对时间字符串，如 "5m ago", "2h ago", "3d ago"
  */
 export function formatRelativeTime(date: string | Date | null | undefined): string {
-  if (!date) return 'Never'
+  if (!date) return i18n.global.t('common.time.never')
 
   const now = new Date()
   const past = new Date(date)
   const diffMs = now.getTime() - past.getTime()
 
   // 处理未来时间或无效日期
-  if (diffMs < 0 || isNaN(diffMs)) return 'Never'
+  if (diffMs < 0 || isNaN(diffMs)) return i18n.global.t('common.time.never')
 
   const diffSecs = Math.floor(diffMs / 1000)
   const diffMins = Math.floor(diffSecs / 60)
   const diffHours = Math.floor(diffMins / 60)
   const diffDays = Math.floor(diffHours / 24)
 
-  if (diffDays > 0) return `${diffDays}d ago`
-  if (diffHours > 0) return `${diffHours}h ago`
-  if (diffMins > 0) return `${diffMins}m ago`
-  return 'Just now'
+  if (diffDays > 0) return i18n.global.t('common.time.daysAgo', { n: diffDays })
+  if (diffHours > 0) return i18n.global.t('common.time.hoursAgo', { n: diffHours })
+  if (diffMins > 0) return i18n.global.t('common.time.minutesAgo', { n: diffMins })
+  return i18n.global.t('common.time.justNow')
 }
 
 /**
@@ -37,33 +39,39 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
 export function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined) return '0'
 
+  const locale = getLocale()
   const absNum = Math.abs(num)
 
-  if (absNum >= 1e9) {
-    return (num / 1e9).toFixed(2) + 'B'
-  } else if (absNum >= 1e6) {
-    return (num / 1e6).toFixed(2) + 'M'
-  } else if (absNum >= 1e3) {
-    return (num / 1e3).toFixed(1) + 'K'
-  }
+  // Use Intl.NumberFormat for compact notation if supported and needed
+  // Note: Compact notation in 'zh' uses '万/亿', which is appropriate for Chinese
+  const formatter = new Intl.NumberFormat(locale, {
+    notation: absNum >= 10000 ? 'compact' : 'standard',
+    maximumFractionDigits: 1
+  })
 
-  return num.toLocaleString()
+  return formatter.format(num)
 }
 
 /**
  * 格式化货币金额
  * @param amount 金额
- * @returns 格式化后的字符串，如 "$1.25" 或 "$0.000123"
+ * @param currency 货币代码，默认 USD
+ * @returns 格式化后的字符串，如 "$1.25"
  */
-export function formatCurrency(amount: number | null | undefined): string {
+export function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
   if (amount === null || amount === undefined) return '$0.00'
 
-  // 小于 0.01 时显示更多小数位
-  if (amount > 0 && amount < 0.01) {
-    return '$' + amount.toFixed(6)
-  }
+  const locale = getLocale()
 
-  return '$' + amount.toFixed(2)
+  // For very small amounts, show more decimals
+  const fractionDigits = amount > 0 && amount < 0.01 ? 6 : 2
+
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
+  }).format(amount)
 }
 
 /**
@@ -87,30 +95,124 @@ export function formatBytes(bytes: number, decimals: number = 2): string {
 /**
  * 格式化日期
  * @param date 日期字符串或 Date 对象
- * @param format 格式字符串，支持 YYYY, MM, DD, HH, mm, ss
+ * @param options Intl.DateTimeFormatOptions
+ * @param localeOverride 可选 locale 覆盖
  * @returns 格式化后的日期字符串
  */
 export function formatDate(
   date: string | Date | null | undefined,
-  format: string = 'YYYY-MM-DD HH:mm:ss'
+  options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  },
+  localeOverride?: string
 ): string {
   if (!date) return ''
 
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
 
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  const seconds = String(d.getSeconds()).padStart(2, '0')
+  const locale = localeOverride ?? getLocale()
+  return new Intl.DateTimeFormat(locale, options).format(d)
+}
 
-  return format
-    .replace('YYYY', String(year))
-    .replace('MM', month)
-    .replace('DD', day)
-    .replace('HH', hours)
-    .replace('mm', minutes)
-    .replace('ss', seconds)
+/**
+ * 格式化日期（只显示日期部分）
+ * @param date 日期字符串或 Date 对象
+ * @returns 格式化后的日期字符串
+ */
+export function formatDateOnly(date: string | Date | null | undefined): string {
+  return formatDate(date, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+}
+
+/**
+ * 格式化日期时间（完整格式）
+ * @param date 日期字符串或 Date 对象
+ * @param options Intl.DateTimeFormatOptions
+ * @param localeOverride 可选 locale 覆盖
+ * @returns 格式化后的日期时间字符串
+ */
+export function formatDateTime(
+  date: string | Date | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+  localeOverride?: string
+): string {
+  return formatDate(date, options, localeOverride)
+}
+
+/**
+ * 格式化为 datetime-local 控件值（YYYY-MM-DDTHH:mm，使用本地时间）
+ */
+export function formatDateTimeLocalInput(timestampSeconds: number | null): string {
+  if (!timestampSeconds) return ''
+  const date = new Date(timestampSeconds * 1000)
+  if (isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+/**
+ * 解析 datetime-local 控件值为时间戳（秒，使用本地时间）
+ */
+export function parseDateTimeLocalInput(value: string): number | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return null
+  return Math.floor(date.getTime() / 1000)
+}
+
+/**
+ * 格式化时间（只显示时分）
+ * @param date 日期字符串或 Date 对象
+ * @returns 格式化后的时间字符串
+ */
+export function formatTime(date: string | Date | null | undefined): string {
+  return formatDate(date, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+/**
+ * 格式化数字（千分位分隔，不使用紧凑单位）
+ * @param num 数字
+ * @returns 格式化后的字符串，如 "12,345"
+ */
+export function formatNumberLocaleString(num: number): string {
+  return num.toLocaleString()
+}
+
+/**
+ * 格式化金额（固定小数位，不带货币符号）
+ * @param amount 金额
+ * @param fractionDigits 小数位数，默认 4
+ * @returns 格式化后的字符串，如 "1.2345"
+ */
+export function formatCostFixed(amount: number, fractionDigits: number = 4): string {
+  return amount.toFixed(fractionDigits)
+}
+
+/**
+ * 格式化 token 数量（>=1M 显示为 M，>=1K 显示为 K，保留 1 位小数）
+ * @param tokens token 数量
+ * @returns 格式化后的字符串，如 "950", "1.2K", "3.5M"
+ */
+export function formatTokensK(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`
+  return tokens.toString()
 }

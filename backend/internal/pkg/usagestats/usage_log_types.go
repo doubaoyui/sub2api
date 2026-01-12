@@ -1,3 +1,4 @@
+// Package usagestats provides types for usage statistics and reporting.
 package usagestats
 
 import "time"
@@ -8,10 +9,16 @@ type DashboardStats struct {
 	TotalUsers    int64 `json:"total_users"`
 	TodayNewUsers int64 `json:"today_new_users"` // 今日新增用户数
 	ActiveUsers   int64 `json:"active_users"`    // 今日有请求的用户数
+	// 小时活跃用户数（UTC 当前小时）
+	HourlyActiveUsers int64 `json:"hourly_active_users"`
+
+	// 预聚合新鲜度
+	StatsUpdatedAt string `json:"stats_updated_at"`
+	StatsStale     bool   `json:"stats_stale"`
 
 	// API Key 统计
-	TotalApiKeys  int64 `json:"total_api_keys"`
-	ActiveApiKeys int64 `json:"active_api_keys"` // 状态为 active 的 API Key 数
+	TotalAPIKeys  int64 `json:"total_api_keys"`
+	ActiveAPIKeys int64 `json:"active_api_keys"` // 状态为 active 的 API Key 数
 
 	// 账户统计
 	TotalAccounts     int64 `json:"total_accounts"`
@@ -82,10 +89,10 @@ type UserUsageTrendPoint struct {
 	ActualCost float64 `json:"actual_cost"` // 实际扣除
 }
 
-// ApiKeyUsageTrendPoint represents API key usage trend data point
-type ApiKeyUsageTrendPoint struct {
+// APIKeyUsageTrendPoint represents API key usage trend data point
+type APIKeyUsageTrendPoint struct {
 	Date     string `json:"date"`
-	ApiKeyID int64  `json:"api_key_id"`
+	APIKeyID int64  `json:"api_key_id"`
 	KeyName  string `json:"key_name"`
 	Requests int64  `json:"requests"`
 	Tokens   int64  `json:"tokens"`
@@ -94,8 +101,8 @@ type ApiKeyUsageTrendPoint struct {
 // UserDashboardStats 用户仪表盘统计
 type UserDashboardStats struct {
 	// API Key 统计
-	TotalApiKeys  int64 `json:"total_api_keys"`
-	ActiveApiKeys int64 `json:"active_api_keys"`
+	TotalAPIKeys  int64 `json:"total_api_keys"`
+	ActiveAPIKeys int64 `json:"active_api_keys"`
 
 	// 累计 Token 使用统计
 	TotalRequests            int64   `json:"total_requests"`
@@ -127,10 +134,15 @@ type UserDashboardStats struct {
 
 // UsageLogFilters represents filters for usage log queries
 type UsageLogFilters struct {
-	UserID    int64
-	ApiKeyID  int64
-	StartTime *time.Time
-	EndTime   *time.Time
+	UserID      int64
+	APIKeyID    int64
+	AccountID   int64
+	GroupID     int64
+	Model       string
+	Stream      *bool
+	BillingType *int8
+	StartTime   *time.Time
+	EndTime     *time.Time
 }
 
 // UsageStats represents usage statistics
@@ -152,9 +164,9 @@ type BatchUserUsageStats struct {
 	TotalActualCost float64 `json:"total_actual_cost"`
 }
 
-// BatchApiKeyUsageStats represents usage stats for a single API key
-type BatchApiKeyUsageStats struct {
-	ApiKeyID        int64   `json:"api_key_id"`
+// BatchAPIKeyUsageStats represents usage stats for a single API key
+type BatchAPIKeyUsageStats struct {
+	APIKeyID        int64   `json:"api_key_id"`
 	TodayActualCost float64 `json:"today_actual_cost"`
 	TotalActualCost float64 `json:"total_actual_cost"`
 }

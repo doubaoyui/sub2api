@@ -4,7 +4,7 @@
     <div
       v-if="windowStats"
       class="mb-0.5 flex items-center justify-between"
-      :title="`5h 窗口用量统计`"
+      :title="statsTitle || t('admin.accounts.usageWindow.statsTitle')"
     >
       <div
         class="flex cursor-help items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400"
@@ -51,22 +51,27 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { WindowStats } from '@/types'
 
 const props = defineProps<{
   label: string
   utilization: number // Percentage (0-100+)
   resetsAt?: string | null
-  color: 'indigo' | 'emerald' | 'purple'
+  color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
+  statsTitle?: string
 }>()
+
+const { t } = useI18n()
 
 // Label background colors
 const labelClass = computed(() => {
   const colors = {
     indigo: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
     emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-    purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+    purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
+    amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
   }
   return colors[props.color]
 })
@@ -106,12 +111,12 @@ const displayPercent = computed(() => {
 
 // Format reset time
 const formatResetTime = computed(() => {
-  if (!props.resetsAt) return 'N/A'
+  if (!props.resetsAt) return t('common.notAvailable')
   const date = new Date(props.resetsAt)
   const now = new Date()
   const diffMs = date.getTime() - now.getTime()
 
-  if (diffMs <= 0) return 'Now'
+  if (diffMs <= 0) return t('common.now')
 
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
   const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))

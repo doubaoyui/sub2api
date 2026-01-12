@@ -1,8 +1,12 @@
+// Package admin provides HTTP handlers for administrative operations.
 package admin
 
 import (
+	"errors"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -13,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
 // OAuthHandler handles OAuth-related operations for accounts
@@ -29,15 +34,16 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
-	adminService        service.AdminService
-	oauthService        *service.OAuthService
-	openaiOAuthService  *service.OpenAIOAuthService
-	geminiOAuthService  *service.GeminiOAuthService
-	rateLimitService    *service.RateLimitService
-	accountUsageService *service.AccountUsageService
-	accountTestService  *service.AccountTestService
-	concurrencyService  *service.ConcurrencyService
-	crsSyncService      *service.CRSSyncService
+	adminService            service.AdminService
+	oauthService            *service.OAuthService
+	openaiOAuthService      *service.OpenAIOAuthService
+	geminiOAuthService      *service.GeminiOAuthService
+	antigravityOAuthService *service.AntigravityOAuthService
+	rateLimitService        *service.RateLimitService
+	accountUsageService     *service.AccountUsageService
+	accountTestService      *service.AccountTestService
+	concurrencyService      *service.ConcurrencyService
+	crsSyncService          *service.CRSSyncService
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -46,6 +52,7 @@ func NewAccountHandler(
 	oauthService *service.OAuthService,
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
+	antigravityOAuthService *service.AntigravityOAuthService,
 	rateLimitService *service.RateLimitService,
 	accountUsageService *service.AccountUsageService,
 	accountTestService *service.AccountTestService,
@@ -53,56 +60,67 @@ func NewAccountHandler(
 	crsSyncService *service.CRSSyncService,
 ) *AccountHandler {
 	return &AccountHandler{
-		adminService:        adminService,
-		oauthService:        oauthService,
-		openaiOAuthService:  openaiOAuthService,
-		geminiOAuthService:  geminiOAuthService,
-		rateLimitService:    rateLimitService,
-		accountUsageService: accountUsageService,
-		accountTestService:  accountTestService,
-		concurrencyService:  concurrencyService,
-		crsSyncService:      crsSyncService,
+		adminService:            adminService,
+		oauthService:            oauthService,
+		openaiOAuthService:      openaiOAuthService,
+		geminiOAuthService:      geminiOAuthService,
+		antigravityOAuthService: antigravityOAuthService,
+		rateLimitService:        rateLimitService,
+		accountUsageService:     accountUsageService,
+		accountTestService:      accountTestService,
+		concurrencyService:      concurrencyService,
+		crsSyncService:          crsSyncService,
 	}
 }
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
-	Name        string         `json:"name" binding:"required"`
-	Platform    string         `json:"platform" binding:"required"`
-	Type        string         `json:"type" binding:"required,oneof=oauth setup-token apikey"`
-	Credentials map[string]any `json:"credentials" binding:"required"`
-	Extra       map[string]any `json:"extra"`
-	ProxyID     *int64         `json:"proxy_id"`
-	Concurrency int            `json:"concurrency"`
-	Priority    int            `json:"priority"`
-	GroupIDs    []int64        `json:"group_ids"`
+	Name                    string         `json:"name" binding:"required"`
+	Notes                   *string        `json:"notes"`
+	Platform                string         `json:"platform" binding:"required"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey"`
+	Credentials             map[string]any `json:"credentials" binding:"required"`
+	Extra                   map[string]any `json:"extra"`
+	ProxyID                 *int64         `json:"proxy_id"`
+	Concurrency             int            `json:"concurrency"`
+	Priority                int            `json:"priority"`
+	GroupIDs                []int64        `json:"group_ids"`
+	ExpiresAt               *int64         `json:"expires_at"`
+	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
+	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // UpdateAccountRequest represents update account request
 // 使用指针类型来区分"未提供"和"设置为0"
 type UpdateAccountRequest struct {
-	Name        string         `json:"name"`
-	Type        string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey"`
-	Credentials map[string]any `json:"credentials"`
-	Extra       map[string]any `json:"extra"`
-	ProxyID     *int64         `json:"proxy_id"`
-	Concurrency *int           `json:"concurrency"`
-	Priority    *int           `json:"priority"`
-	Status      string         `json:"status" binding:"omitempty,oneof=active inactive"`
-	GroupIDs    *[]int64       `json:"group_ids"`
+	Name                    string         `json:"name"`
+	Notes                   *string        `json:"notes"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey"`
+	Credentials             map[string]any `json:"credentials"`
+	Extra                   map[string]any `json:"extra"`
+	ProxyID                 *int64         `json:"proxy_id"`
+	Concurrency             *int           `json:"concurrency"`
+	Priority                *int           `json:"priority"`
+	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive"`
+	GroupIDs                *[]int64       `json:"group_ids"`
+	ExpiresAt               *int64         `json:"expires_at"`
+	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
+	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
-	AccountIDs  []int64        `json:"account_ids" binding:"required,min=1"`
-	Name        string         `json:"name"`
-	ProxyID     *int64         `json:"proxy_id"`
-	Concurrency *int           `json:"concurrency"`
-	Priority    *int           `json:"priority"`
-	Status      string         `json:"status" binding:"omitempty,oneof=active inactive error"`
-	GroupIDs    *[]int64       `json:"group_ids"`
-	Credentials map[string]any `json:"credentials"`
-	Extra       map[string]any `json:"extra"`
+	AccountIDs              []int64        `json:"account_ids" binding:"required,min=1"`
+	Name                    string         `json:"name"`
+	ProxyID                 *int64         `json:"proxy_id"`
+	Concurrency             *int           `json:"concurrency"`
+	Priority                *int           `json:"priority"`
+	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
+	Schedulable             *bool          `json:"schedulable"`
+	GroupIDs                *[]int64       `json:"group_ids"`
+	Credentials             map[string]any `json:"credentials"`
+	Extra                   map[string]any `json:"extra"`
+	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // AccountWithConcurrency extends Account with real-time concurrency info
@@ -119,6 +137,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	accountType := c.Query("type")
 	status := c.Query("status")
 	search := c.Query("search")
+	// 标准化和验证 search 参数
+	search = strings.TrimSpace(search)
+	if len(search) > 100 {
+		search = search[:100]
+	}
 
 	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search)
 	if err != nil {
@@ -177,18 +200,43 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 确定是否跳过混合渠道检查
+	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
+
 	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name:        req.Name,
-		Platform:    req.Platform,
-		Type:        req.Type,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
-		ProxyID:     req.ProxyID,
-		Concurrency: req.Concurrency,
-		Priority:    req.Priority,
-		GroupIDs:    req.GroupIDs,
+		Name:                  req.Name,
+		Notes:                 req.Notes,
+		Platform:              req.Platform,
+		Type:                  req.Type,
+		Credentials:           req.Credentials,
+		Extra:                 req.Extra,
+		ProxyID:               req.ProxyID,
+		Concurrency:           req.Concurrency,
+		Priority:              req.Priority,
+		GroupIDs:              req.GroupIDs,
+		ExpiresAt:             req.ExpiresAt,
+		AutoPauseOnExpired:    req.AutoPauseOnExpired,
+		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {
+		// 检查是否为混合渠道错误
+		var mixedErr *service.MixedChannelError
+		if errors.As(err, &mixedErr) {
+			// 返回特殊错误码要求确认
+			c.JSON(409, gin.H{
+				"error":   "mixed_channel_warning",
+				"message": mixedErr.Error(),
+				"details": gin.H{
+					"group_id":         mixedErr.GroupID,
+					"group_name":       mixedErr.GroupName,
+					"current_platform": mixedErr.CurrentPlatform,
+					"other_platform":   mixedErr.OtherPlatform,
+				},
+				"require_confirmation": true,
+			})
+			return
+		}
+
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -211,18 +259,43 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// 确定是否跳过混合渠道检查
+	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
+
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
-		Name:        req.Name,
-		Type:        req.Type,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
-		ProxyID:     req.ProxyID,
-		Concurrency: req.Concurrency, // 指针类型，nil 表示未提供
-		Priority:    req.Priority,    // 指针类型，nil 表示未提供
-		Status:      req.Status,
-		GroupIDs:    req.GroupIDs,
+		Name:                  req.Name,
+		Notes:                 req.Notes,
+		Type:                  req.Type,
+		Credentials:           req.Credentials,
+		Extra:                 req.Extra,
+		ProxyID:               req.ProxyID,
+		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
+		Priority:              req.Priority,    // 指针类型，nil 表示未提供
+		Status:                req.Status,
+		GroupIDs:              req.GroupIDs,
+		ExpiresAt:             req.ExpiresAt,
+		AutoPauseOnExpired:    req.AutoPauseOnExpired,
+		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {
+		// 检查是否为混合渠道错误
+		var mixedErr *service.MixedChannelError
+		if errors.As(err, &mixedErr) {
+			// 返回特殊错误码要求确认
+			c.JSON(409, gin.H{
+				"error":   "mixed_channel_warning",
+				"message": mixedErr.Error(),
+				"details": gin.H{
+					"group_id":         mixedErr.GroupID,
+					"group_name":       mixedErr.GroupName,
+					"current_platform": mixedErr.CurrentPlatform,
+					"other_platform":   mixedErr.OtherPlatform,
+				},
+				"require_confirmation": true,
+			})
+			return
+		}
+
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -302,7 +375,8 @@ func (h *AccountHandler) SyncFromCRS(c *gin.Context) {
 		SyncProxies: syncProxies,
 	})
 	if err != nil {
-		response.ErrorFrom(c, err)
+		// Provide detailed error message for CRS sync failures
+		response.InternalError(c, "CRS sync failed: "+err.Error())
 		return
 	}
 
@@ -358,6 +432,19 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		}
 
 		newCredentials = h.geminiOAuthService.BuildAccountCredentials(tokenInfo)
+		for k, v := range account.Credentials {
+			if _, exists := newCredentials[k]; !exists {
+				newCredentials[k] = v
+			}
+		}
+	} else if account.Platform == service.PlatformAntigravity {
+		tokenInfo, err := h.antigravityOAuthService.RefreshAccountToken(c.Request.Context(), account)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+
+		newCredentials = h.antigravityOAuthService.BuildAccountCredentials(tokenInfo)
 		for k, v := range account.Credentials {
 			if _, exists := newCredentials[k]; !exists {
 				newCredentials[k] = v
@@ -566,11 +653,15 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		return
 	}
 
+	// 确定是否跳过混合渠道检查
+	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
+
 	hasUpdates := req.Name != "" ||
 		req.ProxyID != nil ||
 		req.Concurrency != nil ||
 		req.Priority != nil ||
 		req.Status != "" ||
+		req.Schedulable != nil ||
 		req.GroupIDs != nil ||
 		len(req.Credentials) > 0 ||
 		len(req.Extra) > 0
@@ -581,15 +672,17 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	}
 
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
-		AccountIDs:  req.AccountIDs,
-		Name:        req.Name,
-		ProxyID:     req.ProxyID,
-		Concurrency: req.Concurrency,
-		Priority:    req.Priority,
-		Status:      req.Status,
-		GroupIDs:    req.GroupIDs,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
+		AccountIDs:            req.AccountIDs,
+		Name:                  req.Name,
+		ProxyID:               req.ProxyID,
+		Concurrency:           req.Concurrency,
+		Priority:              req.Priority,
+		Status:                req.Status,
+		Schedulable:           req.Schedulable,
+		GroupIDs:              req.GroupIDs,
+		Credentials:           req.Credentials,
+		Extra:                 req.Extra,
+		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -779,6 +872,49 @@ func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rate limit cleared successfully"})
 }
 
+// GetTempUnschedulable handles getting temporary unschedulable status
+// GET /api/v1/admin/accounts/:id/temp-unschedulable
+func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	state, err := h.rateLimitService.GetTempUnschedStatus(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	if state == nil || state.UntilUnix <= time.Now().Unix() {
+		response.Success(c, gin.H{"active": false})
+		return
+	}
+
+	response.Success(c, gin.H{
+		"active": true,
+		"state":  state,
+	})
+}
+
+// ClearTempUnschedulable handles clearing temporary unschedulable status
+// DELETE /api/v1/admin/accounts/:id/temp-unschedulable
+func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	if err := h.rateLimitService.ClearTempUnschedulable(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Temp unschedulable cleared successfully"})
+}
+
 // GetTodayStats handles getting account today statistics
 // GET /api/v1/admin/accounts/:id/today-stats
 func (h *AccountHandler) GetTodayStats(c *gin.Context) {
@@ -918,6 +1054,37 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Handle Antigravity accounts: return Claude + Gemini models
+	if account.Platform == service.PlatformAntigravity {
+		// Antigravity 支持 Claude 和部分 Gemini 模型
+		type UnifiedModel struct {
+			ID          string `json:"id"`
+			Type        string `json:"type"`
+			DisplayName string `json:"display_name"`
+		}
+
+		var models []UnifiedModel
+
+		// 添加 Claude 模型
+		for _, m := range claude.DefaultModels {
+			models = append(models, UnifiedModel{
+				ID:          m.ID,
+				Type:        m.Type,
+				DisplayName: m.DisplayName,
+			})
+		}
+
+		// 添加 Gemini 3 系列模型用于测试
+		geminiTestModels := []UnifiedModel{
+			{ID: "gemini-3-flash", Type: "model", DisplayName: "Gemini 3 Flash"},
+			{ID: "gemini-3-pro-preview", Type: "model", DisplayName: "Gemini 3 Pro Preview"},
+		}
+		models = append(models, geminiTestModels...)
+
+		response.Success(c, models)
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
@@ -957,4 +1124,165 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+// RefreshTier handles refreshing Google One tier for a single account
+// POST /api/v1/admin/accounts/:id/refresh-tier
+func (h *AccountHandler) RefreshTier(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	ctx := c.Request.Context()
+	account, err := h.adminService.GetAccount(ctx, accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+
+	if account.Platform != service.PlatformGemini || account.Type != service.AccountTypeOAuth {
+		response.BadRequest(c, "Only Gemini OAuth accounts support tier refresh")
+		return
+	}
+
+	oauthType, _ := account.Credentials["oauth_type"].(string)
+	if oauthType != "google_one" {
+		response.BadRequest(c, "Only google_one OAuth accounts support tier refresh")
+		return
+	}
+
+	tierID, extra, creds, err := h.geminiOAuthService.RefreshAccountGoogleOneTier(ctx, account)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	_, updateErr := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
+		Credentials: creds,
+		Extra:       extra,
+	})
+	if updateErr != nil {
+		response.ErrorFrom(c, updateErr)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"tier_id":             tierID,
+		"storage_info":        extra,
+		"drive_storage_limit": extra["drive_storage_limit"],
+		"drive_storage_usage": extra["drive_storage_usage"],
+		"updated_at":          extra["drive_tier_updated_at"],
+	})
+}
+
+// BatchRefreshTierRequest represents batch tier refresh request
+type BatchRefreshTierRequest struct {
+	AccountIDs []int64 `json:"account_ids"`
+}
+
+// BatchRefreshTier handles batch refreshing Google One tier
+// POST /api/v1/admin/accounts/batch-refresh-tier
+func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
+	var req BatchRefreshTierRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req = BatchRefreshTierRequest{}
+	}
+
+	ctx := c.Request.Context()
+	accounts := make([]*service.Account, 0)
+
+	if len(req.AccountIDs) == 0 {
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "")
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		for i := range allAccounts {
+			acc := &allAccounts[i]
+			oauthType, _ := acc.Credentials["oauth_type"].(string)
+			if oauthType == "google_one" {
+				accounts = append(accounts, acc)
+			}
+		}
+	} else {
+		fetched, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+
+		for _, acc := range fetched {
+			if acc == nil {
+				continue
+			}
+			if acc.Platform != service.PlatformGemini || acc.Type != service.AccountTypeOAuth {
+				continue
+			}
+			oauthType, _ := acc.Credentials["oauth_type"].(string)
+			if oauthType != "google_one" {
+				continue
+			}
+			accounts = append(accounts, acc)
+		}
+	}
+
+	const maxConcurrency = 10
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrency)
+
+	var mu sync.Mutex
+	var successCount, failedCount int
+	var errors []gin.H
+
+	for _, account := range accounts {
+		acc := account // 闭包捕获
+		g.Go(func() error {
+			_, extra, creds, err := h.geminiOAuthService.RefreshAccountGoogleOneTier(gctx, acc)
+			if err != nil {
+				mu.Lock()
+				failedCount++
+				errors = append(errors, gin.H{
+					"account_id": acc.ID,
+					"error":      err.Error(),
+				})
+				mu.Unlock()
+				return nil
+			}
+
+			_, updateErr := h.adminService.UpdateAccount(gctx, acc.ID, &service.UpdateAccountInput{
+				Credentials: creds,
+				Extra:       extra,
+			})
+
+			mu.Lock()
+			if updateErr != nil {
+				failedCount++
+				errors = append(errors, gin.H{
+					"account_id": acc.ID,
+					"error":      updateErr.Error(),
+				})
+			} else {
+				successCount++
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	results := gin.H{
+		"total":   len(accounts),
+		"success": successCount,
+		"failed":  failedCount,
+		"errors":  errors,
+	}
+
+	response.Success(c, results)
 }

@@ -5,17 +5,23 @@ import (
 	"fmt"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 var (
 	ErrAccountNotFound = infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found")
+	ErrAccountNilInput = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
 )
 
 type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error
 	GetByID(ctx context.Context, id int64) (*Account, error)
+	// GetByIDs fetches accounts by IDs in a single query.
+	// It should return all accounts found (missing IDs are ignored).
+	GetByIDs(ctx context.Context, ids []int64) ([]*Account, error)
+	// ExistsByID 检查账号是否存在，仅返回布尔值，用于删除前的轻量级存在性检查
+	ExistsByID(ctx context.Context, id int64) (bool, error)
 	// GetByCRSAccountID finds an account previously synced from CRS.
 	// Returns (nil, nil) if not found.
 	GetByCRSAccountID(ctx context.Context, crsAccountID string) (*Account, error)
@@ -29,18 +35,26 @@ type AccountRepository interface {
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
 
 	UpdateLastUsed(ctx context.Context, id int64) error
+	BatchUpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error
 	SetError(ctx context.Context, id int64, errorMsg string) error
 	SetSchedulable(ctx context.Context, id int64, schedulable bool) error
+	AutoPauseExpiredAccounts(ctx context.Context, now time.Time) (int64, error)
 	BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error
 
 	ListSchedulable(ctx context.Context) ([]Account, error)
 	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
 	ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error)
 	ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error)
+	ListSchedulableByPlatforms(ctx context.Context, platforms []string) ([]Account, error)
+	ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 
 	SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error
+	SetAntigravityQuotaScopeLimit(ctx context.Context, id int64, scope AntigravityQuotaScope, resetAt time.Time) error
 	SetOverloaded(ctx context.Context, id int64, until time.Time) error
+	SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error
+	ClearTempUnschedulable(ctx context.Context, id int64) error
 	ClearRateLimit(ctx context.Context, id int64) error
+	ClearAntigravityQuotaScopes(ctx context.Context, id int64) error
 	UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
@@ -54,33 +68,40 @@ type AccountBulkUpdate struct {
 	Concurrency *int
 	Priority    *int
 	Status      *string
+	Schedulable *bool
 	Credentials map[string]any
 	Extra       map[string]any
 }
 
 // CreateAccountRequest 创建账号请求
 type CreateAccountRequest struct {
-	Name        string         `json:"name"`
-	Platform    string         `json:"platform"`
-	Type        string         `json:"type"`
-	Credentials map[string]any `json:"credentials"`
-	Extra       map[string]any `json:"extra"`
-	ProxyID     *int64         `json:"proxy_id"`
-	Concurrency int            `json:"concurrency"`
-	Priority    int            `json:"priority"`
-	GroupIDs    []int64        `json:"group_ids"`
+	Name               string         `json:"name"`
+	Notes              *string        `json:"notes"`
+	Platform           string         `json:"platform"`
+	Type               string         `json:"type"`
+	Credentials        map[string]any `json:"credentials"`
+	Extra              map[string]any `json:"extra"`
+	ProxyID            *int64         `json:"proxy_id"`
+	Concurrency        int            `json:"concurrency"`
+	Priority           int            `json:"priority"`
+	GroupIDs           []int64        `json:"group_ids"`
+	ExpiresAt          *time.Time     `json:"expires_at"`
+	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
 }
 
 // UpdateAccountRequest 更新账号请求
 type UpdateAccountRequest struct {
-	Name        *string         `json:"name"`
-	Credentials *map[string]any `json:"credentials"`
-	Extra       *map[string]any `json:"extra"`
-	ProxyID     *int64          `json:"proxy_id"`
-	Concurrency *int            `json:"concurrency"`
-	Priority    *int            `json:"priority"`
-	Status      *string         `json:"status"`
-	GroupIDs    *[]int64        `json:"group_ids"`
+	Name               *string         `json:"name"`
+	Notes              *string         `json:"notes"`
+	Credentials        *map[string]any `json:"credentials"`
+	Extra              *map[string]any `json:"extra"`
+	ProxyID            *int64          `json:"proxy_id"`
+	Concurrency        *int            `json:"concurrency"`
+	Priority           *int            `json:"priority"`
+	Status             *string         `json:"status"`
+	GroupIDs           *[]int64        `json:"group_ids"`
+	ExpiresAt          *time.Time      `json:"expires_at"`
+	AutoPauseOnExpired *bool           `json:"auto_pause_on_expired"`
 }
 
 // AccountService 账号管理服务
@@ -112,6 +133,7 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 	// 创建账号
 	account := &Account{
 		Name:        req.Name,
+		Notes:       normalizeAccountNotes(req.Notes),
 		Platform:    req.Platform,
 		Type:        req.Type,
 		Credentials: req.Credentials,
@@ -120,6 +142,12 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
 		Status:      StatusActive,
+		ExpiresAt:   req.ExpiresAt,
+	}
+	if req.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	} else {
+		account.AutoPauseOnExpired = true
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
@@ -183,6 +211,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.Name != nil {
 		account.Name = *req.Name
 	}
+	if req.Notes != nil {
+		account.Notes = normalizeAccountNotes(req.Notes)
+	}
 
 	if req.Credentials != nil {
 		account.Credentials = *req.Credentials
@@ -207,21 +238,30 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.Status != nil {
 		account.Status = *req.Status
 	}
-
-	if err := s.accountRepo.Update(ctx, account); err != nil {
-		return nil, fmt.Errorf("update account: %w", err)
+	if req.ExpiresAt != nil {
+		account.ExpiresAt = req.ExpiresAt
+	}
+	if req.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
 
-	// 更新分组绑定
+	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
-		// 验证分组是否存在
 		for _, groupID := range *req.GroupIDs {
 			_, err := s.groupRepo.GetByID(ctx, groupID)
 			if err != nil {
 				return nil, fmt.Errorf("get group: %w", err)
 			}
 		}
+	}
 
+	// 执行更新
+	if err := s.accountRepo.Update(ctx, account); err != nil {
+		return nil, fmt.Errorf("update account: %w", err)
+	}
+
+	// 绑定分组
+	if req.GroupIDs != nil {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, *req.GroupIDs); err != nil {
 			return nil, fmt.Errorf("bind groups: %w", err)
 		}
@@ -231,11 +271,17 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 }
 
 // Delete 删除账号
+// 优化：使用 ExistsByID 替代 GetByID 进行存在性检查，
+// 避免加载完整账号对象及其关联数据，提升删除操作的性能
 func (s *AccountService) Delete(ctx context.Context, id int64) error {
-	// 检查账号是否存在
-	_, err := s.accountRepo.GetByID(ctx, id)
+	// 使用轻量级的存在性检查，而非加载完整账号对象
+	exists, err := s.accountRepo.ExistsByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("get account: %w", err)
+		return fmt.Errorf("check account: %w", err)
+	}
+	// 明确返回账号不存在错误，便于调用方区分错误类型
+	if !exists {
+		return ErrAccountNotFound
 	}
 
 	if err := s.accountRepo.Delete(ctx, id); err != nil {

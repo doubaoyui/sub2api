@@ -1,69 +1,70 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <!-- Page Header Actions -->
-      <div class="flex justify-end gap-3">
-        <button
-          @click="loadGroups"
-          :disabled="loading"
-          class="btn btn-secondary"
-          :title="t('common.refresh')"
-        >
-          <svg
-            :class="['h-5 w-5', loading ? 'animate-spin' : '']"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
-            />
-          </svg>
-        </button>
-        <button @click="showCreateModal = true" class="btn btn-primary">
-          <svg
-            class="mr-2 h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          {{ t('admin.groups.createGroup') }}
-        </button>
-      </div>
+    <TablePageLayout>
+      <template #filters>
+        <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <!-- Left: fuzzy search + filters (can wrap to multiple lines) -->
+          <div class="flex flex-1 flex-wrap items-center gap-3">
+            <div class="relative w-full sm:w-64">
+              <Icon
+                name="search"
+                size="md"
+                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+              />
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="t('admin.groups.searchGroups')"
+                class="input pl-10"
+                @input="handleSearch"
+              />
+            </div>
+          <Select
+            v-model="filters.platform"
+            :options="platformFilterOptions"
+            :placeholder="t('admin.groups.allPlatforms')"
+            class="w-44"
+            @change="loadGroups"
+          />
+          <Select
+            v-model="filters.status"
+            :options="statusOptions"
+            :placeholder="t('admin.groups.allStatus')"
+            class="w-40"
+            @change="loadGroups"
+          />
+          <Select
+            v-model="filters.is_exclusive"
+            :options="exclusiveOptions"
+            :placeholder="t('admin.groups.allGroups')"
+            class="w-44"
+            @change="loadGroups"
+          />
+          </div>
 
-      <!-- Filters -->
-      <div class="flex flex-wrap gap-3">
-        <Select
-          v-model="filters.platform"
-          :options="platformFilterOptions"
-          placeholder="All Platforms"
-          class="w-44"
-          @change="loadGroups"
-        />
-        <Select
-          v-model="filters.status"
-          :options="statusOptions"
-          placeholder="All Status"
-          class="w-40"
-          @change="loadGroups"
-        />
-        <Select
-          v-model="filters.is_exclusive"
-          :options="exclusiveOptions"
-          placeholder="All Groups"
-          class="w-44"
-          @change="loadGroups"
-        />
-      </div>
+          <!-- Right: actions -->
+          <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
+            <button
+              @click="loadGroups"
+              :disabled="loading"
+              class="btn btn-secondary"
+              :title="t('common.refresh')"
+            >
+              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+            </button>
+            <button
+              @click="showCreateModal = true"
+              class="btn btn-primary"
+              data-tour="groups-create-btn"
+            >
+              <Icon name="plus" size="md" class="mr-2" />
+              {{ t('admin.groups.createGroup') }}
+            </button>
+          </div>
+        </div>
+      </template>
 
-      <!-- Groups Table -->
-      <div class="card overflow-hidden">
+      <template #table>
         <DataTable :columns="columns" :data="groups" :loading="loading">
           <template #cell-name="{ value }">
             <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -77,11 +78,13 @@
                   ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                   : value === 'openai'
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    : value === 'antigravity'
+                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
               ]"
             >
               <PlatformIcon :platform="value" size="xs" />
-              {{ value === 'anthropic' ? 'Anthropic' : value === 'openai' ? 'OpenAI' : 'Gemini' }}
+              {{ t('admin.groups.platforms.' + value) }}
             </span>
           </template>
 
@@ -157,7 +160,7 @@
 
           <template #cell-status="{ value }">
             <span :class="['badge', value === 'active' ? 'badge-success' : 'badge-danger']">
-              {{ value }}
+              {{ t('admin.accounts.status.' + value) }}
             </span>
           </template>
 
@@ -165,41 +168,17 @@
             <div class="flex items-center gap-1">
               <button
                 @click="handleEdit(row)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                :title="t('common.edit')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
-                  />
-                </svg>
+                <Icon name="edit" size="sm" />
+                <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
               <button
                 @click="handleDelete(row)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                :title="t('common.delete')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                  />
-                </svg>
+                <Icon name="trash" size="sm" />
+                <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
             </div>
           </template>
@@ -213,26 +192,28 @@
             />
           </template>
         </DataTable>
-      </div>
+      </template>
 
-      <!-- Pagination -->
-      <Pagination
-        v-if="pagination.total > 0"
-        :page="pagination.page"
-        :total="pagination.total"
-        :page-size="pagination.page_size"
-        @update:page="handlePageChange"
-      />
-    </div>
+      <template #pagination>
+        <Pagination
+          v-if="pagination.total > 0"
+          :page="pagination.page"
+          :total="pagination.total"
+          :page-size="pagination.page_size"
+          @update:page="handlePageChange"
+          @update:pageSize="handlePageSizeChange"
+        />
+      </template>
+    </TablePageLayout>
 
     <!-- Create Group Modal -->
-    <Modal
+    <BaseDialog
       :show="showCreateModal"
       :title="t('admin.groups.createGroup')"
-      size="lg"
+      width="normal"
       @close="closeCreateModal"
     >
-      <form @submit.prevent="handleCreateGroup" class="space-y-5">
+      <form id="create-group-form" @submit.prevent="handleCreateGroup" class="space-y-5">
         <div>
           <label class="input-label">{{ t('admin.groups.form.name') }}</label>
           <input
@@ -241,6 +222,7 @@
             required
             class="input"
             :placeholder="t('admin.groups.enterGroupName')"
+            data-tour="group-form-name"
           />
         </div>
         <div>
@@ -254,7 +236,11 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.groups.form.platform') }}</label>
-          <Select v-model="createForm.platform" :options="platformOptions" />
+          <Select
+            v-model="createForm.platform"
+            :options="platformOptions"
+            data-tour="group-form-platform"
+          />
           <p class="input-hint">{{ t('admin.groups.platformHint') }}</p>
         </div>
         <div v-if="createForm.subscription_type !== 'subscription'">
@@ -266,37 +252,67 @@
             min="0.001"
             required
             class="input"
+            data-tour="group-form-multiplier"
           />
           <p class="input-hint">{{ t('admin.groups.rateMultiplierHint') }}</p>
         </div>
-        <div v-if="createForm.subscription_type !== 'subscription'" class="flex items-center gap-3">
-          <button
-            type="button"
-            @click="createForm.is_exclusive = !createForm.is_exclusive"
-            :class="[
-              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-              createForm.is_exclusive ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
-            ]"
-          >
-            <span
+        <div v-if="createForm.subscription_type !== 'subscription'" data-tour="group-form-exclusive">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.form.exclusive') }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <!-- Tooltip Popover -->
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="mb-2 text-xs font-medium">{{ t('admin.groups.exclusiveTooltip.title') }}</p>
+                  <p class="mb-2 text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.exclusiveTooltip.description') }}
+                  </p>
+                  <div class="rounded bg-gray-800 p-2 dark:bg-gray-700">
+                    <p class="text-xs leading-relaxed text-gray-300">
+                      <span class="inline-flex items-center gap-1 text-primary-400"><Icon name="lightbulb" size="xs" /> {{ t('admin.groups.exclusiveTooltip.example') }}</span>
+                      {{ t('admin.groups.exclusiveTooltip.exampleContent') }}
+                    </p>
+                  </div>
+                  <!-- Arrow -->
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="createForm.is_exclusive = !createForm.is_exclusive"
               :class="[
-                'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                createForm.is_exclusive ? 'translate-x-6' : 'translate-x-1'
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.is_exclusive ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
               ]"
-            />
-          </button>
-          <label class="text-sm text-gray-700 dark:text-gray-300">
-            {{ t('admin.groups.exclusiveHint') }}
-          </label>
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.is_exclusive ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ createForm.is_exclusive ? t('admin.groups.exclusive') : t('admin.groups.public') }}
+            </span>
+          </div>
         </div>
 
         <!-- Subscription Configuration -->
         <div class="mt-4 border-t pt-4">
-          <h4 class="mb-4 text-sm font-medium text-gray-900 dark:text-white">
-            {{ t('admin.groups.subscription.title') }}
-          </h4>
-
-          <div class="mb-4">
+          <div>
             <label class="input-label">{{ t('admin.groups.subscription.type') }}</label>
             <Select v-model="createForm.subscription_type" :options="subscriptionTypeOptions" />
             <p class="input-hint">{{ t('admin.groups.subscription.typeHint') }}</p>
@@ -343,11 +359,121 @@
           </div>
         </div>
 
+        <!-- 图片生成计费配置（antigravity 和 gemini 平台） -->
+        <div v-if="createForm.platform === 'antigravity' || createForm.platform === 'gemini'" class="border-t pt-4">
+          <label class="block mb-2 font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.groups.imagePricing.title') }}
+          </label>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t('admin.groups.imagePricing.description') }}
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="input-label">1K ($)</label>
+              <input
+                v-model.number="createForm.image_price_1k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">2K ($)</label>
+              <input
+                v-model.number="createForm.image_price_2k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">4K ($)</label>
+              <input
+                v-model.number="createForm.image_price_4k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.268"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
+        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.claudeCode.title') }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.claudeCode.tooltip') }}
+                  </p>
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="createForm.claude_code_only = !createForm.claude_code_only"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.claude_code_only ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.claude_code_only ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ createForm.claude_code_only ? t('admin.groups.claudeCode.enabled') : t('admin.groups.claudeCode.disabled') }}
+            </span>
+          </div>
+          <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
+          <div v-if="createForm.claude_code_only" class="mt-3">
+            <label class="input-label">{{ t('admin.groups.claudeCode.fallbackGroup') }}</label>
+            <Select
+              v-model="createForm.fallback_group_id"
+              :options="fallbackGroupOptions"
+              :placeholder="t('admin.groups.claudeCode.noFallback')"
+            />
+            <p class="input-hint">{{ t('admin.groups.claudeCode.fallbackHint') }}</p>
+          </div>
+        </div>
+
+      </form>
+
+      <template #footer>
         <div class="flex justify-end gap-3 pt-4">
           <button @click="closeCreateModal" type="button" class="btn btn-secondary">
             {{ t('common.cancel') }}
           </button>
-          <button type="submit" :disabled="submitting" class="btn btn-primary">
+          <button
+            type="submit"
+            form="create-group-form"
+            :disabled="submitting"
+            class="btn btn-primary"
+            data-tour="group-form-submit"
+          >
             <svg
               v-if="submitting"
               class="-ml-1 mr-2 h-4 w-4 animate-spin"
@@ -371,20 +497,31 @@
             {{ submitting ? t('admin.groups.creating') : t('common.create') }}
           </button>
         </div>
-      </form>
-    </Modal>
+      </template>
+    </BaseDialog>
 
     <!-- Edit Group Modal -->
-    <Modal
+    <BaseDialog
       :show="showEditModal"
       :title="t('admin.groups.editGroup')"
-      size="lg"
+      width="normal"
       @close="closeEditModal"
     >
-      <form v-if="editingGroup" @submit.prevent="handleUpdateGroup" class="space-y-5">
+      <form
+        v-if="editingGroup"
+        id="edit-group-form"
+        @submit.prevent="handleUpdateGroup"
+        class="space-y-5"
+      >
         <div>
           <label class="input-label">{{ t('admin.groups.form.name') }}</label>
-          <input v-model="editForm.name" type="text" required class="input" />
+          <input
+            v-model="editForm.name"
+            type="text"
+            required
+            class="input"
+            data-tour="edit-group-form-name"
+          />
         </div>
         <div>
           <label class="input-label">{{ t('admin.groups.form.description') }}</label>
@@ -392,7 +529,12 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.groups.form.platform') }}</label>
-          <Select v-model="editForm.platform" :options="platformOptions" :disabled="true" />
+          <Select
+            v-model="editForm.platform"
+            :options="platformOptions"
+            :disabled="true"
+            data-tour="group-form-platform"
+          />
           <p class="input-hint">{{ t('admin.groups.platformNotEditable') }}</p>
         </div>
         <div v-if="editForm.subscription_type !== 'subscription'">
@@ -404,27 +546,61 @@
             min="0.001"
             required
             class="input"
+            data-tour="group-form-multiplier"
           />
         </div>
-        <div v-if="editForm.subscription_type !== 'subscription'" class="flex items-center gap-3">
-          <button
-            type="button"
-            @click="editForm.is_exclusive = !editForm.is_exclusive"
-            :class="[
-              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-              editForm.is_exclusive ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
-            ]"
-          >
-            <span
+        <div v-if="editForm.subscription_type !== 'subscription'">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.form.exclusive') }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <!-- Tooltip Popover -->
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="mb-2 text-xs font-medium">{{ t('admin.groups.exclusiveTooltip.title') }}</p>
+                  <p class="mb-2 text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.exclusiveTooltip.description') }}
+                  </p>
+                  <div class="rounded bg-gray-800 p-2 dark:bg-gray-700">
+                    <p class="text-xs leading-relaxed text-gray-300">
+                      <span class="inline-flex items-center gap-1 text-primary-400"><Icon name="lightbulb" size="xs" /> {{ t('admin.groups.exclusiveTooltip.example') }}</span>
+                      {{ t('admin.groups.exclusiveTooltip.exampleContent') }}
+                    </p>
+                  </div>
+                  <!-- Arrow -->
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="editForm.is_exclusive = !editForm.is_exclusive"
               :class="[
-                'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                editForm.is_exclusive ? 'translate-x-6' : 'translate-x-1'
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.is_exclusive ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
               ]"
-            />
-          </button>
-          <label class="text-sm text-gray-700 dark:text-gray-300">
-            {{ t('admin.groups.exclusiveHint') }}
-          </label>
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.is_exclusive ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ editForm.is_exclusive ? t('admin.groups.exclusive') : t('admin.groups.public') }}
+            </span>
+          </div>
         </div>
         <div>
           <label class="input-label">{{ t('admin.groups.form.status') }}</label>
@@ -433,11 +609,7 @@
 
         <!-- Subscription Configuration -->
         <div class="mt-4 border-t pt-4">
-          <h4 class="mb-4 text-sm font-medium text-gray-900 dark:text-white">
-            {{ t('admin.groups.subscription.title') }}
-          </h4>
-
-          <div class="mb-4">
+          <div>
             <label class="input-label">{{ t('admin.groups.subscription.type') }}</label>
             <Select
               v-model="editForm.subscription_type"
@@ -488,11 +660,121 @@
           </div>
         </div>
 
+        <!-- 图片生成计费配置（antigravity 和 gemini 平台） -->
+        <div v-if="editForm.platform === 'antigravity' || editForm.platform === 'gemini'" class="border-t pt-4">
+          <label class="block mb-2 font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.groups.imagePricing.title') }}
+          </label>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t('admin.groups.imagePricing.description') }}
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="input-label">1K ($)</label>
+              <input
+                v-model.number="editForm.image_price_1k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">2K ($)</label>
+              <input
+                v-model.number="editForm.image_price_2k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">4K ($)</label>
+              <input
+                v-model.number="editForm.image_price_4k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.268"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
+        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.claudeCode.title') }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.claudeCode.tooltip') }}
+                  </p>
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="editForm.claude_code_only = !editForm.claude_code_only"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.claude_code_only ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.claude_code_only ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ editForm.claude_code_only ? t('admin.groups.claudeCode.enabled') : t('admin.groups.claudeCode.disabled') }}
+            </span>
+          </div>
+          <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
+          <div v-if="editForm.claude_code_only" class="mt-3">
+            <label class="input-label">{{ t('admin.groups.claudeCode.fallbackGroup') }}</label>
+            <Select
+              v-model="editForm.fallback_group_id"
+              :options="fallbackGroupOptionsForEdit"
+              :placeholder="t('admin.groups.claudeCode.noFallback')"
+            />
+            <p class="input-hint">{{ t('admin.groups.claudeCode.fallbackHint') }}</p>
+          </div>
+        </div>
+
+      </form>
+
+      <template #footer>
         <div class="flex justify-end gap-3 pt-4">
           <button @click="closeEditModal" type="button" class="btn btn-secondary">
             {{ t('common.cancel') }}
           </button>
-          <button type="submit" :disabled="submitting" class="btn btn-primary">
+          <button
+            type="submit"
+            form="edit-group-form"
+            :disabled="submitting"
+            class="btn btn-primary"
+            data-tour="group-form-submit"
+          >
             <svg
               v-if="submitting"
               class="-ml-1 mr-2 h-4 w-4 animate-spin"
@@ -516,8 +798,8 @@
             {{ submitting ? t('admin.groups.updating') : t('common.update') }}
           </button>
         </div>
-      </form>
-    </Modal>
+      </template>
+    </BaseDialog>
 
     <!-- Delete Confirmation Dialog -->
     <ConfirmDialog
@@ -537,20 +819,24 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { adminAPI } from '@/api/admin'
 import type { Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
-import Modal from '@/components/common/Modal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const onboardingStore = useOnboardingStore()
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.groups.columns.name'), sortable: true },
@@ -566,8 +852,8 @@ const columns = computed<Column[]>(() => [
 // Filter options
 const statusOptions = computed(() => [
   { value: '', label: t('admin.groups.allStatus') },
-  { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'active', label: t('admin.accounts.status.active') },
+  { value: 'inactive', label: t('admin.accounts.status.inactive') }
 ])
 
 const exclusiveOptions = computed(() => [
@@ -579,19 +865,21 @@ const exclusiveOptions = computed(() => [
 const platformOptions = computed(() => [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' }
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' }
 ])
 
 const platformFilterOptions = computed(() => [
   { value: '', label: t('admin.groups.allPlatforms') },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' }
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' }
 ])
 
 const editStatusOptions = computed(() => [
-  { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'active', label: t('admin.accounts.status.active') },
+  { value: 'inactive', label: t('admin.accounts.status.inactive') }
 ])
 
 const subscriptionTypeOptions = computed(() => [
@@ -599,8 +887,38 @@ const subscriptionTypeOptions = computed(() => [
   { value: 'subscription', label: t('admin.groups.subscription.subscription') }
 ])
 
+// 降级分组选项（创建时）- 仅包含 anthropic 平台且未启用 claude_code_only 的分组
+const fallbackGroupOptions = computed(() => {
+  const options: { value: number | null; label: string }[] = [
+    { value: null, label: t('admin.groups.claudeCode.noFallback') }
+  ]
+  const eligibleGroups = groups.value.filter(
+    (g) => g.platform === 'anthropic' && !g.claude_code_only && g.status === 'active'
+  )
+  eligibleGroups.forEach((g) => {
+    options.push({ value: g.id, label: g.name })
+  })
+  return options
+})
+
+// 降级分组选项（编辑时）- 排除自身
+const fallbackGroupOptionsForEdit = computed(() => {
+  const options: { value: number | null; label: string }[] = [
+    { value: null, label: t('admin.groups.claudeCode.noFallback') }
+  ]
+  const currentId = editingGroup.value?.id
+  const eligibleGroups = groups.value.filter(
+    (g) => g.platform === 'anthropic' && !g.claude_code_only && g.status === 'active' && g.id !== currentId
+  )
+  eligibleGroups.forEach((g) => {
+    options.push({ value: g.id, label: g.name })
+  })
+  return options
+})
+
 const groups = ref<Group[]>([])
 const loading = ref(false)
+const searchQuery = ref('')
 const filters = reactive({
   platform: '',
   status: '',
@@ -612,6 +930,8 @@ const pagination = reactive({
   total: 0,
   pages: 0
 })
+
+let abortController: AbortController | null = null
 
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
@@ -629,7 +949,14 @@ const createForm = reactive({
   subscription_type: 'standard' as SubscriptionType,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
-  monthly_limit_usd: null as number | null
+  monthly_limit_usd: null as number | null,
+  // 图片生成计费配置（仅 antigravity 平台使用）
+  image_price_1k: null as number | null,
+  image_price_2k: null as number | null,
+  image_price_4k: null as number | null,
+  // Claude Code 客户端限制（仅 anthropic 平台使用）
+  claude_code_only: false,
+  fallback_group_id: null as number | null
 })
 
 const editForm = reactive({
@@ -642,7 +969,14 @@ const editForm = reactive({
   subscription_type: 'standard' as SubscriptionType,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
-  monthly_limit_usd: null as number | null
+  monthly_limit_usd: null as number | null,
+  // 图片生成计费配置（仅 antigravity 平台使用）
+  image_price_1k: null as number | null,
+  image_price_2k: null as number | null,
+  image_price_4k: null as number | null,
+  // Claude Code 客户端限制（仅 anthropic 平台使用）
+  claude_code_only: false,
+  fallback_group_id: null as number | null
 })
 
 // 根据分组类型返回不同的删除确认消息
@@ -657,26 +991,54 @@ const deleteConfirmMessage = computed(() => {
 })
 
 const loadGroups = async () => {
+  if (abortController) {
+    abortController.abort()
+  }
+  const currentController = new AbortController()
+  abortController = currentController
+  const { signal } = currentController
   loading.value = true
   try {
     const response = await adminAPI.groups.list(pagination.page, pagination.page_size, {
       platform: (filters.platform as GroupPlatform) || undefined,
       status: filters.status as any,
-      is_exclusive: filters.is_exclusive ? filters.is_exclusive === 'true' : undefined
-    })
+      is_exclusive: filters.is_exclusive ? filters.is_exclusive === 'true' : undefined,
+      search: searchQuery.value.trim() || undefined
+    }, { signal })
+    if (signal.aborted) return
     groups.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
-  } catch (error) {
+  } catch (error: any) {
+    if (signal.aborted || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
+      return
+    }
     appStore.showError(t('admin.groups.failedToLoad'))
     console.error('Error loading groups:', error)
   } finally {
-    loading.value = false
+    if (abortController === currentController && !signal.aborted) {
+      loading.value = false
+    }
   }
+}
+
+let searchTimeout: ReturnType<typeof setTimeout>
+const handleSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    pagination.page = 1
+    loadGroups()
+  }, 300)
 }
 
 const handlePageChange = (page: number) => {
   pagination.page = page
+  loadGroups()
+}
+
+const handlePageSizeChange = (pageSize: number) => {
+  pagination.page_size = pageSize
+  pagination.page = 1
   loadGroups()
 }
 
@@ -691,18 +1053,32 @@ const closeCreateModal = () => {
   createForm.daily_limit_usd = null
   createForm.weekly_limit_usd = null
   createForm.monthly_limit_usd = null
+  createForm.image_price_1k = null
+  createForm.image_price_2k = null
+  createForm.image_price_4k = null
+  createForm.claude_code_only = false
+  createForm.fallback_group_id = null
 }
 
 const handleCreateGroup = async () => {
+  if (!createForm.name.trim()) {
+    appStore.showError(t('admin.groups.nameRequired'))
+    return
+  }
   submitting.value = true
   try {
     await adminAPI.groups.create(createForm)
     appStore.showSuccess(t('admin.groups.groupCreated'))
     closeCreateModal()
     loadGroups()
+    // Only advance tour if active, on submit step, and creation succeeded
+    if (onboardingStore.isCurrentStep('[data-tour="group-form-submit"]')) {
+      onboardingStore.nextStep(500)
+    }
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.groups.failedToCreate'))
     console.error('Error creating group:', error)
+    // Don't advance tour on error
   } finally {
     submitting.value = false
   }
@@ -720,6 +1096,11 @@ const handleEdit = (group: Group) => {
   editForm.daily_limit_usd = group.daily_limit_usd
   editForm.weekly_limit_usd = group.weekly_limit_usd
   editForm.monthly_limit_usd = group.monthly_limit_usd
+  editForm.image_price_1k = group.image_price_1k
+  editForm.image_price_2k = group.image_price_2k
+  editForm.image_price_4k = group.image_price_4k
+  editForm.claude_code_only = group.claude_code_only || false
+  editForm.fallback_group_id = group.fallback_group_id
   showEditModal.value = true
 }
 
@@ -730,10 +1111,19 @@ const closeEditModal = () => {
 
 const handleUpdateGroup = async () => {
   if (!editingGroup.value) return
+  if (!editForm.name.trim()) {
+    appStore.showError(t('admin.groups.nameRequired'))
+    return
+  }
 
   submitting.value = true
   try {
-    await adminAPI.groups.update(editingGroup.value.id, editForm)
+    // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
+    const payload = {
+      ...editForm,
+      fallback_group_id: editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id
+    }
+    await adminAPI.groups.update(editingGroup.value.id, payload)
     appStore.showSuccess(t('admin.groups.groupUpdated'))
     closeEditModal()
     loadGroups()

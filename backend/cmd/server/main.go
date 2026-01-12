@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -85,7 +86,8 @@ func main() {
 func runSetupServer() {
 	r := gin.New()
 	r.Use(middleware.Recovery())
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(config.CORSConfig{}))
+	r.Use(middleware.SecurityHeaders(config.CSPConfig{Enabled: true, Policy: config.DefaultCSPPolicy}))
 
 	// Register setup routes
 	setup.RegisterRoutes(r)
@@ -107,6 +109,14 @@ func runSetupServer() {
 }
 
 func runMainServer() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.RunMode == config.RunModeSimple {
+		log.Println("⚠️  WARNING: Running in SIMPLE mode - billing and quota checks are DISABLED")
+	}
+
 	buildInfo := handler.BuildInfo{
 		Version:   Version,
 		BuildType: BuildType,

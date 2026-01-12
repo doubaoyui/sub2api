@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"strconv"
 	"time"
 
@@ -13,44 +14,48 @@ import (
 
 // DashboardHandler handles admin dashboard statistics
 type DashboardHandler struct {
-	dashboardService *service.DashboardService
-	startTime        time.Time // Server start time for uptime calculation
+	dashboardService   *service.DashboardService
+	aggregationService *service.DashboardAggregationService
+	startTime          time.Time // Server start time for uptime calculation
 }
 
 // NewDashboardHandler creates a new admin dashboard handler
-func NewDashboardHandler(dashboardService *service.DashboardService) *DashboardHandler {
+func NewDashboardHandler(dashboardService *service.DashboardService, aggregationService *service.DashboardAggregationService) *DashboardHandler {
 	return &DashboardHandler{
-		dashboardService: dashboardService,
-		startTime:        time.Now(),
+		dashboardService:   dashboardService,
+		aggregationService: aggregationService,
+		startTime:          time.Now(),
 	}
 }
 
 // parseTimeRange parses start_date, end_date query parameters
+// Uses user's timezone if provided, otherwise falls back to server timezone
 func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
-	now := timezone.Now()
+	userTZ := c.Query("timezone") // Get user's timezone from request
+	now := timezone.NowInUserLocation(userTZ)
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
 	var startTime, endTime time.Time
 
 	if startDate != "" {
-		if t, err := timezone.ParseInLocation("2006-01-02", startDate); err == nil {
+		if t, err := timezone.ParseInUserLocation("2006-01-02", startDate, userTZ); err == nil {
 			startTime = t
 		} else {
-			startTime = timezone.StartOfDay(now.AddDate(0, 0, -7))
+			startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
 		}
 	} else {
-		startTime = timezone.StartOfDay(now.AddDate(0, 0, -7))
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
 	}
 
 	if endDate != "" {
-		if t, err := timezone.ParseInLocation("2006-01-02", endDate); err == nil {
+		if t, err := timezone.ParseInUserLocation("2006-01-02", endDate, userTZ); err == nil {
 			endTime = t.Add(24 * time.Hour) // Include the end date
 		} else {
-			endTime = timezone.StartOfDay(now.AddDate(0, 0, 1))
+			endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 		}
 	} else {
-		endTime = timezone.StartOfDay(now.AddDate(0, 0, 1))
+		endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 	}
 
 	return startTime, endTime
@@ -75,8 +80,8 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"active_users":    stats.ActiveUsers,
 
 		// API Key 统计
-		"total_api_keys":  stats.TotalApiKeys,
-		"active_api_keys": stats.ActiveApiKeys,
+		"total_api_keys":  stats.TotalAPIKeys,
+		"active_api_keys": stats.ActiveAPIKeys,
 
 		// 账户统计
 		"total_accounts":     stats.TotalAccounts,
@@ -112,6 +117,58 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		// 性能指标
 		"rpm": stats.Rpm,
 		"tpm": stats.Tpm,
+
+		// 预聚合新鲜度
+		"hourly_active_users": stats.HourlyActiveUsers,
+		"stats_updated_at":    stats.StatsUpdatedAt,
+		"stats_stale":         stats.StatsStale,
+	})
+}
+
+type DashboardAggregationBackfillRequest struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// BackfillAggregation handles triggering aggregation backfill
+// POST /api/v1/admin/dashboard/aggregation/backfill
+func (h *DashboardHandler) BackfillAggregation(c *gin.Context) {
+	if h.aggregationService == nil {
+		response.InternalError(c, "Aggregation service not available")
+		return
+	}
+
+	var req DashboardAggregationBackfillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	start, err := time.Parse(time.RFC3339, req.Start)
+	if err != nil {
+		response.BadRequest(c, "Invalid start time")
+		return
+	}
+	end, err := time.Parse(time.RFC3339, req.End)
+	if err != nil {
+		response.BadRequest(c, "Invalid end time")
+		return
+	}
+
+	if err := h.aggregationService.TriggerBackfill(start, end); err != nil {
+		if errors.Is(err, service.ErrDashboardBackfillDisabled) {
+			response.Forbidden(c, "Backfill is disabled")
+			return
+		}
+		if errors.Is(err, service.ErrDashboardBackfillTooLarge) {
+			response.BadRequest(c, "Backfill range too large")
+			return
+		}
+		response.InternalError(c, "Failed to trigger backfill")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"status": "accepted",
 	})
 }
 
@@ -193,10 +250,10 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 	})
 }
 
-// GetApiKeyUsageTrend handles getting API key usage trend data
+// GetAPIKeyUsageTrend handles getting API key usage trend data
 // GET /api/v1/admin/dashboard/api-keys-trend
 // Query params: start_date, end_date (YYYY-MM-DD), granularity (day/hour), limit (default 5)
-func (h *DashboardHandler) GetApiKeyUsageTrend(c *gin.Context) {
+func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
 	granularity := c.DefaultQuery("granularity", "day")
 	limitStr := c.DefaultQuery("limit", "5")
@@ -205,7 +262,7 @@ func (h *DashboardHandler) GetApiKeyUsageTrend(c *gin.Context) {
 		limit = 5
 	}
 
-	trend, err := h.dashboardService.GetApiKeyUsageTrend(c.Request.Context(), startTime, endTime, granularity, limit)
+	trend, err := h.dashboardService.GetAPIKeyUsageTrend(c.Request.Context(), startTime, endTime, granularity, limit)
 	if err != nil {
 		response.Error(c, 500, "Failed to get API key usage trend")
 		return
@@ -273,26 +330,26 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 	response.Success(c, gin.H{"stats": stats})
 }
 
-// BatchApiKeysUsageRequest represents the request body for batch api key usage stats
-type BatchApiKeysUsageRequest struct {
-	ApiKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+// BatchAPIKeysUsageRequest represents the request body for batch api key usage stats
+type BatchAPIKeysUsageRequest struct {
+	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
 }
 
-// GetBatchApiKeysUsage handles getting usage stats for multiple API keys
+// GetBatchAPIKeysUsage handles getting usage stats for multiple API keys
 // POST /api/v1/admin/dashboard/api-keys-usage
-func (h *DashboardHandler) GetBatchApiKeysUsage(c *gin.Context) {
-	var req BatchApiKeysUsageRequest
+func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
+	var req BatchAPIKeysUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
-	if len(req.ApiKeyIDs) == 0 {
+	if len(req.APIKeyIDs) == 0 {
 		response.Success(c, gin.H{"stats": map[string]any{}})
 		return
 	}
 
-	stats, err := h.dashboardService.GetBatchApiKeyUsageStats(c.Request.Context(), req.ApiKeyIDs)
+	stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), req.APIKeyIDs)
 	if err != nil {
 		response.Error(c, 500, "Failed to get API key usage stats")
 		return

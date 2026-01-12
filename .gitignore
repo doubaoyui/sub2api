@@ -14,6 +14,9 @@ backend/server
 backend/sub2api
 backend/main
 
+# Go 测试二进制
+*.test
+
 # 测试覆盖率
 *.out
 coverage.html
@@ -32,6 +35,8 @@ frontend/node_modules/
 frontend/dist/
 *.local
 *.tsbuildinfo
+vite.config.d.ts
+vite.config.js.timestamp-*
 
 # 日志
 npm-debug.log*
@@ -47,6 +52,7 @@ pnpm-debug.log*
 .env.*.local
 *.env
 !.env.example
+docker-compose.override.yml
 
 # 本地运行配置（不要提交）
 config.yaml
@@ -81,6 +87,7 @@ temp/
 *.temp
 *.log
 *.bak
+.cache/
 
 # ===================
 # 构建产物
@@ -111,5 +118,16 @@ backend/.installed
 # ===================
 tests
 CLAUDE.md
+AGENTS.md
 .claude
 scripts
+.code-review-state
+openspec/
+docs/
+code-reviews/
+AGENTS.md
+backend/cmd/server/server
+deploy/docker-compose.override.yml
+.gocache/
+vite.config.js
+docs/*

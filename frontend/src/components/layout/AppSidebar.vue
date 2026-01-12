@@ -36,7 +36,16 @@
             class="sidebar-link mb-1"
             :class="{ 'sidebar-link-active': isActive(item.path) }"
             :title="sidebarCollapsed ? item.label : undefined"
-            @click="handleMenuItemClick"
+            :id="
+              item.path === '/admin/accounts'
+                ? 'sidebar-channel-manage'
+                : item.path === '/admin/groups'
+                  ? 'sidebar-group-manage'
+                  : item.path === '/admin/redeem'
+                    ? 'sidebar-wallet'
+                    : undefined
+            "
+            @click="handleMenuItemClick(item.path)"
           >
             <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <transition name="fade">
@@ -45,8 +54,8 @@
           </router-link>
         </div>
 
-        <!-- Personal Section for Admin -->
-        <div class="sidebar-section">
+        <!-- Personal Section for Admin (hidden in simple mode) -->
+        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
           <div v-if="!sidebarCollapsed" class="sidebar-section-title">
             {{ t('nav.myAccount') }}
           </div>
@@ -59,7 +68,8 @@
             class="sidebar-link mb-1"
             :class="{ 'sidebar-link-active': isActive(item.path) }"
             :title="sidebarCollapsed ? item.label : undefined"
-            @click="handleMenuItemClick"
+            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+            @click="handleMenuItemClick(item.path)"
           >
             <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <transition name="fade">
@@ -79,7 +89,8 @@
             class="sidebar-link mb-1"
             :class="{ 'sidebar-link-active': isActive(item.path) }"
             :title="sidebarCollapsed ? item.label : undefined"
-            @click="handleMenuItemClick"
+            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+            @click="handleMenuItemClick(item.path)"
           >
             <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <transition name="fade">
@@ -133,10 +144,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAppStore, useAuthStore } from '@/stores'
+import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 
 const { t } = useI18n()
@@ -144,6 +155,8 @@ const { t } = useI18n()
 const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const onboardingStore = useOnboardingStore()
+const adminSettingsStore = useAdminSettingsStore()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
@@ -402,36 +415,58 @@ const ChevronDoubleRightIcon = {
 }
 
 // User navigation items (for regular users)
-const userNavItems = computed(() => [
-  { path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
-  { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-  { path: '/usage', label: t('nav.usage'), icon: ChartIcon },
-  { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon },
-  { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon },
-  { path: '/profile', label: t('nav.profile'), icon: UserIcon }
-])
+const userNavItems = computed(() => {
+  const items = [
+    { path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
+    { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
+    { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
+    { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/profile', label: t('nav.profile'), icon: UserIcon }
+  ]
+  return authStore.isSimpleMode ? items.filter(item => !item.hideInSimpleMode) : items
+})
 
 // Personal navigation items (for admin's "My Account" section, without Dashboard)
-const personalNavItems = computed(() => [
-  { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-  { path: '/usage', label: t('nav.usage'), icon: ChartIcon },
-  { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon },
-  { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon },
-  { path: '/profile', label: t('nav.profile'), icon: UserIcon }
-])
+const personalNavItems = computed(() => {
+  const items = [
+    { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
+    { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
+    { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/profile', label: t('nav.profile'), icon: UserIcon }
+  ]
+  return authStore.isSimpleMode ? items.filter(item => !item.hideInSimpleMode) : items
+})
 
 // Admin navigation items
-const adminNavItems = computed(() => [
-  { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
-  { path: '/admin/users', label: t('nav.users'), icon: UsersIcon },
-  { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon },
-  { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon },
-  { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-  { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
-  { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon },
-  { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
-  { path: '/admin/settings', label: t('nav.settings'), icon: CogIcon }
-])
+const adminNavItems = computed(() => {
+  const baseItems = [
+    { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
+    ...(adminSettingsStore.opsMonitoringEnabled
+      ? [{ path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon }]
+      : []),
+    { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
+    { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
+    { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
+    { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
+    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
+    { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
+    { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+  ]
+
+  // 简单模式下，在系统设置前插入 API密钥
+  if (authStore.isSimpleMode) {
+    const filtered = baseItems.filter(item => !item.hideInSimpleMode)
+    filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
+    filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
+    return filtered
+  }
+
+  baseItems.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
+  return baseItems
+})
 
 function toggleSidebar() {
   appStore.toggleSidebar()
@@ -447,11 +482,23 @@ function closeMobile() {
   appStore.setMobileOpen(false)
 }
 
-function handleMenuItemClick() {
+function handleMenuItemClick(itemPath: string) {
   if (mobileOpen.value) {
     setTimeout(() => {
       appStore.setMobileOpen(false)
     }, 150)
+  }
+
+  // Map paths to tour selectors
+  const pathToSelector: Record<string, string> = {
+    '/admin/groups': '#sidebar-group-manage',
+    '/admin/accounts': '#sidebar-channel-manage',
+    '/keys': '[data-tour="sidebar-my-keys"]'
+  }
+
+  const selector = pathToSelector[itemPath]
+  if (selector && onboardingStore.isCurrentStep(selector)) {
+    onboardingStore.nextStep(500)
   }
 }
 
@@ -468,6 +515,23 @@ if (
   isDark.value = true
   document.documentElement.classList.add('dark')
 }
+
+// Fetch admin settings (for feature-gated nav items like Ops).
+watch(
+  isAdmin,
+  (v) => {
+    if (v) {
+      adminSettingsStore.fetch()
+    }
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  if (isAdmin.value) {
+    adminSettingsStore.fetch()
+  }
+})
 </script>
 
 <style scoped>

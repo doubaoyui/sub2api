@@ -1,6 +1,11 @@
 <template>
-  <Modal :show="show" :title="t('admin.accounts.bulkEdit.title')" size="lg" @close="handleClose">
-    <form class="space-y-5" @submit.prevent="handleSubmit">
+  <BaseDialog
+    :show="show"
+    :title="t('admin.accounts.bulkEdit.title')"
+    width="wide"
+    @close="handleClose"
+  >
+    <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="handleSubmit">
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -19,20 +24,30 @@
       <!-- Base URL (API Key only) -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label class="input-label mb-0">{{ t('admin.accounts.baseUrl') }}</label>
+          <label
+            id="bulk-edit-base-url-label"
+            class="input-label mb-0"
+            for="bulk-edit-base-url-enabled"
+          >
+            {{ t('admin.accounts.baseUrl') }}
+          </label>
           <input
             v-model="enableBaseUrl"
+            id="bulk-edit-base-url-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-base-url"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
         <input
           v-model="baseUrl"
+          id="bulk-edit-base-url"
           type="text"
           :disabled="!enableBaseUrl"
           class="input"
           :class="!enableBaseUrl && 'cursor-not-allowed opacity-50'"
           :placeholder="t('admin.accounts.bulkEdit.baseUrlPlaceholder')"
+          aria-labelledby="bulk-edit-base-url-label"
         />
         <p class="input-hint">
           {{ t('admin.accounts.bulkEdit.baseUrlNotice') }}
@@ -42,15 +57,28 @@
       <!-- Model restriction -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label class="input-label mb-0">{{ t('admin.accounts.modelRestriction') }}</label>
+          <label
+            id="bulk-edit-model-restriction-label"
+            class="input-label mb-0"
+            for="bulk-edit-model-restriction-enabled"
+          >
+            {{ t('admin.accounts.modelRestriction') }}
+          </label>
           <input
             v-model="enableModelRestriction"
+            id="bulk-edit-model-restriction-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-model-restriction-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
 
-        <div :class="!enableModelRestriction && 'pointer-events-none opacity-50'">
+        <div
+          id="bulk-edit-model-restriction-body"
+          :class="!enableModelRestriction && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-model-restriction-label"
+        >
           <!-- Mode Toggle -->
           <div class="mb-4 flex gap-2">
             <button
@@ -267,34 +295,30 @@
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
           <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
+            <label
+              id="bulk-edit-custom-error-codes-label"
+              class="input-label mb-0"
+              for="bulk-edit-custom-error-codes-enabled"
+            >
+              {{ t('admin.accounts.customErrorCodes') }}
+            </label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.customErrorCodesHint') }}
             </p>
           </div>
           <input
             v-model="enableCustomErrorCodes"
+            id="bulk-edit-custom-error-codes-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-custom-error-codes-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
 
-        <div v-if="enableCustomErrorCodes" class="space-y-3">
+        <div v-if="enableCustomErrorCodes" id="bulk-edit-custom-error-codes-body" class="space-y-3">
           <div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
             <p class="text-xs text-amber-700 dark:text-amber-400">
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
+              <Icon name="exclamationTriangle" size="sm" class="mr-1 inline" :stroke-width="2" />
               {{ t('admin.accounts.customErrorCodesWarning') }}
             </p>
           </div>
@@ -321,11 +345,13 @@
           <div class="flex items-center gap-2">
             <input
               v-model="customErrorCodeInput"
+              id="bulk-edit-custom-error-code-input"
               type="number"
               min="100"
               max="599"
               class="input flex-1"
               :placeholder="t('admin.accounts.enterErrorCode')"
+              aria-labelledby="bulk-edit-custom-error-codes-label"
               @keyup.enter="addCustomErrorCode"
             />
             <button type="button" class="btn btn-secondary px-3" @click="addCustomErrorCode">
@@ -353,14 +379,7 @@
                 class="hover:text-red-900 dark:hover:text-red-300"
                 @click="removeErrorCode(code)"
               >
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
+                <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
               </button>
             </span>
             <span v-if="selectedErrorCodes.length === 0" class="text-xs text-gray-400">
@@ -374,20 +393,26 @@
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="flex items-center justify-between">
           <div class="flex-1 pr-4">
-            <label class="input-label mb-0">{{
-              t('admin.accounts.interceptWarmupRequests')
-            }}</label>
+            <label
+              id="bulk-edit-intercept-warmup-label"
+              class="input-label mb-0"
+              for="bulk-edit-intercept-warmup-enabled"
+            >
+              {{ t('admin.accounts.interceptWarmupRequests') }}
+            </label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.interceptWarmupRequestsDesc') }}
             </p>
           </div>
           <input
             v-model="enableInterceptWarmup"
+            id="bulk-edit-intercept-warmup-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-intercept-warmup-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div v-if="enableInterceptWarmup" class="mt-3">
+        <div v-if="enableInterceptWarmup" id="bulk-edit-intercept-warmup-body" class="mt-3">
           <button
             type="button"
             :class="[
@@ -409,15 +434,27 @@
       <!-- Proxy -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
+          <label
+            id="bulk-edit-proxy-label"
+            class="input-label mb-0"
+            for="bulk-edit-proxy-enabled"
+          >
+            {{ t('admin.accounts.proxy') }}
+          </label>
           <input
             v-model="enableProxy"
+            id="bulk-edit-proxy-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-proxy-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div :class="!enableProxy && 'pointer-events-none opacity-50'">
-          <ProxySelector v-model="proxyId" :proxies="proxies" />
+        <div id="bulk-edit-proxy-body" :class="!enableProxy && 'pointer-events-none opacity-50'">
+          <ProxySelector
+            v-model="proxyId"
+            :proxies="proxies"
+            aria-labelledby="bulk-edit-proxy-label"
+          />
         </div>
       </div>
 
@@ -425,38 +462,58 @@
       <div class="grid grid-cols-2 gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
         <div>
           <div class="mb-3 flex items-center justify-between">
-            <label class="input-label mb-0">{{ t('admin.accounts.concurrency') }}</label>
+            <label
+              id="bulk-edit-concurrency-label"
+              class="input-label mb-0"
+              for="bulk-edit-concurrency-enabled"
+            >
+              {{ t('admin.accounts.concurrency') }}
+            </label>
             <input
               v-model="enableConcurrency"
+              id="bulk-edit-concurrency-enabled"
               type="checkbox"
+              aria-controls="bulk-edit-concurrency"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
           <input
             v-model.number="concurrency"
+            id="bulk-edit-concurrency"
             type="number"
             min="1"
             :disabled="!enableConcurrency"
             class="input"
             :class="!enableConcurrency && 'cursor-not-allowed opacity-50'"
+            aria-labelledby="bulk-edit-concurrency-label"
           />
         </div>
         <div>
           <div class="mb-3 flex items-center justify-between">
-            <label class="input-label mb-0">{{ t('admin.accounts.priority') }}</label>
+            <label
+              id="bulk-edit-priority-label"
+              class="input-label mb-0"
+              for="bulk-edit-priority-enabled"
+            >
+              {{ t('admin.accounts.priority') }}
+            </label>
             <input
               v-model="enablePriority"
+              id="bulk-edit-priority-enabled"
               type="checkbox"
+              aria-controls="bulk-edit-priority"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
           <input
             v-model.number="priority"
+            id="bulk-edit-priority"
             type="number"
             min="1"
             :disabled="!enablePriority"
             class="input"
             :class="!enablePriority && 'cursor-not-allowed opacity-50'"
+            aria-labelledby="bulk-edit-priority-label"
           />
         </div>
       </div>
@@ -464,39 +521,69 @@
       <!-- Status -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label class="input-label mb-0">{{ t('common.status') }}</label>
+          <label
+            id="bulk-edit-status-label"
+            class="input-label mb-0"
+            for="bulk-edit-status-enabled"
+          >
+            {{ t('common.status') }}
+          </label>
           <input
             v-model="enableStatus"
+            id="bulk-edit-status-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-status"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div :class="!enableStatus && 'pointer-events-none opacity-50'">
-          <Select v-model="status" :options="statusOptions" />
+        <div id="bulk-edit-status" :class="!enableStatus && 'pointer-events-none opacity-50'">
+          <Select
+            v-model="status"
+            :options="statusOptions"
+            aria-labelledby="bulk-edit-status-label"
+          />
         </div>
       </div>
 
       <!-- Groups -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label class="input-label mb-0">{{ t('nav.groups') }}</label>
+          <label
+            id="bulk-edit-groups-label"
+            class="input-label mb-0"
+            for="bulk-edit-groups-enabled"
+          >
+            {{ t('nav.groups') }}
+          </label>
           <input
             v-model="enableGroups"
+            id="bulk-edit-groups-enabled"
             type="checkbox"
+            aria-controls="bulk-edit-groups"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div :class="!enableGroups && 'pointer-events-none opacity-50'">
-          <GroupSelector v-model="groupIds" :groups="groups" />
+        <div id="bulk-edit-groups" :class="!enableGroups && 'pointer-events-none opacity-50'">
+          <GroupSelector
+            v-model="groupIds"
+            :groups="groups"
+            aria-labelledby="bulk-edit-groups-label"
+          />
         </div>
       </div>
+    </form>
 
-      <!-- Action buttons -->
-      <div class="flex justify-end gap-3 pt-4">
+    <template #footer>
+      <div class="flex justify-end gap-3">
         <button type="button" class="btn btn-secondary" @click="handleClose">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="submitting" class="btn btn-primary">
+        <button
+          type="submit"
+          form="bulk-edit-account-form"
+          :disabled="submitting"
+          class="btn btn-primary"
+        >
           <svg
             v-if="submitting"
             class="-ml-1 mr-2 h-4 w-4 animate-spin"
@@ -522,8 +609,8 @@
           }}
         </button>
       </div>
-    </form>
-  </Modal>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
@@ -532,10 +619,11 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { Proxy, Group } from '@/types'
-import Modal from '@/components/common/Modal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import Icon from '@/components/icons/Icon.vue'
 
 interface Props {
   show: boolean
@@ -690,6 +778,16 @@ const addPresetMapping = (from: string, to: string) => {
 const toggleErrorCode = (code: number) => {
   const index = selectedErrorCodes.value.indexOf(code)
   if (index === -1) {
+    // Adding code - check for 429/529 warning
+    if (code === 429) {
+      if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+        return
+      }
+    } else if (code === 529) {
+      if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+        return
+      }
+    }
     selectedErrorCodes.value.push(code)
   } else {
     selectedErrorCodes.value.splice(index, 1)
@@ -705,6 +803,16 @@ const addCustomErrorCode = () => {
   if (selectedErrorCodes.value.includes(code)) {
     appStore.showInfo(t('admin.accounts.errorCodeExists'))
     return
+  }
+  // Check for 429/529 warning
+  if (code === 429) {
+    if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+      return
+    }
+  } else if (code === 529) {
+    if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+      return
+    }
   }
   selectedErrorCodes.value.push(code)
   customErrorCodeInput.value = null
@@ -743,7 +851,8 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   let credentialsChanged = false
 
   if (enableProxy.value) {
-    updates.proxy_id = proxyId.value
+    // 后端期望 proxy_id: 0 表示清除代理，而不是 null
+    updates.proxy_id = proxyId.value === null ? 0 : proxyId.value
   }
 
   if (enableConcurrency.value) {

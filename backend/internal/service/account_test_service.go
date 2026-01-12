@@ -7,18 +7,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -29,7 +30,6 @@ var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
 const (
 	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages"
-	testOpenAIAPIURL   = "https://api.openai.com/v1/responses"
 	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
 )
 
@@ -44,28 +44,46 @@ type TestEvent struct {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	accountRepo         AccountRepository
-	oauthService        *OAuthService
-	openaiOAuthService  *OpenAIOAuthService
-	geminiTokenProvider *GeminiTokenProvider
-	httpUpstream        HTTPUpstream
+	accountRepo               AccountRepository
+	geminiTokenProvider       *GeminiTokenProvider
+	antigravityGatewayService *AntigravityGatewayService
+	httpUpstream              HTTPUpstream
+	cfg                       *config.Config
 }
 
 // NewAccountTestService creates a new AccountTestService
 func NewAccountTestService(
 	accountRepo AccountRepository,
-	oauthService *OAuthService,
-	openaiOAuthService *OpenAIOAuthService,
 	geminiTokenProvider *GeminiTokenProvider,
+	antigravityGatewayService *AntigravityGatewayService,
 	httpUpstream HTTPUpstream,
+	cfg *config.Config,
 ) *AccountTestService {
 	return &AccountTestService{
-		accountRepo:         accountRepo,
-		oauthService:        oauthService,
-		openaiOAuthService:  openaiOAuthService,
-		geminiTokenProvider: geminiTokenProvider,
-		httpUpstream:        httpUpstream,
+		accountRepo:               accountRepo,
+		geminiTokenProvider:       geminiTokenProvider,
+		antigravityGatewayService: antigravityGatewayService,
+		httpUpstream:              httpUpstream,
+		cfg:                       cfg,
 	}
+}
+
+func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {
+	if s.cfg == nil {
+		return "", errors.New("config is not available")
+	}
+	if !s.cfg.Security.URLAllowlist.Enabled {
+		return urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
+	}
+	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
+		RequireAllowlist: true,
+		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
+	})
+	if err != nil {
+		return "", err
+	}
+	return normalized, nil
 }
 
 // generateSessionString generates a Claude Code style session string
@@ -141,6 +159,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testGeminiAccountConnection(c, account, modelID)
 	}
 
+	if account.Platform == PlatformAntigravity {
+		return s.testAntigravityAccountConnection(c, account, modelID)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
@@ -177,23 +199,6 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No access token available")
 		}
-
-		// Check if token needs refresh
-		needRefresh := false
-		if expiresAtStr := account.GetCredential("expires_at"); expiresAtStr != "" {
-			expiresAt, err := strconv.ParseInt(expiresAtStr, 10, 64)
-			if err == nil && time.Now().Unix()+300 > expiresAt {
-				needRefresh = true
-			}
-		}
-
-		if needRefresh && s.oauthService != nil {
-			tokenInfo, err := s.oauthService.RefreshAccountToken(ctx, account)
-			if err != nil {
-				return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to refresh token: %s", err.Error()))
-			}
-			authToken = tokenInfo.AccessToken
-		}
 	} else if account.Type == "apikey" {
 		// API Key - use x-api-key header
 		useBearer = false
@@ -202,11 +207,15 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
 
-		apiURL = account.GetBaseURL()
-		if apiURL == "" {
-			apiURL = "https://api.anthropic.com"
+		baseURL := account.GetBaseURL()
+		if baseURL == "" {
+			baseURL = "https://api.anthropic.com"
 		}
-		apiURL = strings.TrimSuffix(apiURL, "/") + "/v1/messages"
+		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+		}
+		apiURL = strings.TrimSuffix(normalizedBaseURL, "/") + "/v1/messages"
 	} else {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -256,7 +265,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.Do(req, proxyURL)
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -305,15 +314,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, "No access token available")
 		}
 
-		// Check if token is expired and refresh if needed
-		if account.IsOpenAITokenExpired() && s.openaiOAuthService != nil {
-			tokenInfo, err := s.openaiOAuthService.RefreshAccountToken(ctx, account)
-			if err != nil {
-				return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to refresh token: %s", err.Error()))
-			}
-			authToken = tokenInfo.AccessToken
-		}
-
 		// OAuth uses ChatGPT internal API
 		apiURL = chatgptCodexAPIURL
 		chatgptAccountID = account.GetChatGPTAccountID()
@@ -328,7 +328,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
-		apiURL = strings.TrimSuffix(baseURL, "/") + "/v1/responses"
+		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+		}
+		apiURL = strings.TrimSuffix(normalizedBaseURL, "/") + "/responses"
 	} else {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -371,7 +375,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.Do(req, proxyURL)
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -397,7 +401,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	}
 
 	// For API Key accounts with model mapping, map the model
-	if account.Type == AccountTypeApiKey {
+	if account.Type == AccountTypeAPIKey {
 		mapping := account.GetModelMapping()
 		if len(mapping) > 0 {
 			if mappedModel, exists := mapping[testModelID]; exists {
@@ -421,7 +425,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	var err error
 
 	switch account.Type {
-	case AccountTypeApiKey:
+	case AccountTypeAPIKey:
 		req, err = s.buildGeminiAPIKeyRequest(ctx, account, testModelID, payload)
 	case AccountTypeOAuth:
 		req, err = s.buildGeminiOAuthRequest(ctx, account, testModelID, payload)
@@ -442,7 +446,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.Do(req, proxyURL)
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -457,6 +461,46 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	return s.processGeminiStream(c, resp.Body)
 }
 
+// testAntigravityAccountConnection tests an Antigravity account's connection
+// 支持 Claude 和 Gemini 两种协议，使用非流式请求
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+	ctx := c.Request.Context()
+
+	// 默认模型：Claude 使用 claude-sonnet-4-5，Gemini 使用 gemini-3-pro-preview
+	testModelID := modelID
+	if testModelID == "" {
+		testModelID = "claude-sonnet-4-5"
+	}
+
+	if s.antigravityGatewayService == nil {
+		return s.sendErrorAndEnd(c, "Antigravity gateway service not configured")
+	}
+
+	// Set SSE headers
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	// Send test_start event
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+
+	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
+	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	// 发送响应内容
+	if result.Text != "" {
+		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
+	}
+
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
 // buildGeminiAPIKeyRequest builds request for Gemini API Key accounts
 func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, account *Account, modelID string, payload []byte) (*http.Request, error) {
 	apiKey := account.GetCredential("api_key")
@@ -468,10 +512,14 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 	if baseURL == "" {
 		baseURL = geminicli.AIStudioBaseURL
 	}
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
 
 	// Use streamGenerateContent for real-time feedback
 	fullURL := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse",
-		strings.TrimRight(baseURL, "/"), modelID)
+		strings.TrimRight(normalizedBaseURL, "/"), modelID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewReader(payload))
 	if err != nil {
@@ -503,7 +551,11 @@ func (s *AccountTestService) buildGeminiOAuthRequest(ctx context.Context, accoun
 		if strings.TrimSpace(baseURL) == "" {
 			baseURL = geminicli.AIStudioBaseURL
 		}
-		fullURL := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse", strings.TrimRight(baseURL, "/"), modelID)
+		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return nil, err
+		}
+		fullURL := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse", strings.TrimRight(normalizedBaseURL, "/"), modelID)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 		if err != nil {
@@ -514,7 +566,12 @@ func (s *AccountTestService) buildGeminiOAuthRequest(ctx context.Context, accoun
 		return req, nil
 	}
 
-	// Wrap payload in Code Assist format
+	// Code Assist mode (with project_id)
+	return s.buildCodeAssistRequest(ctx, accessToken, projectID, modelID, payload)
+}
+
+// buildCodeAssistRequest builds request for Google Code Assist API (used by Gemini CLI and Antigravity)
+func (s *AccountTestService) buildCodeAssistRequest(ctx context.Context, accessToken, projectID, modelID string, payload []byte) (*http.Request, error) {
 	var inner map[string]any
 	if err := json.Unmarshal(payload, &inner); err != nil {
 		return nil, err
@@ -527,7 +584,11 @@ func (s *AccountTestService) buildGeminiOAuthRequest(ctx context.Context, accoun
 	}
 	wrappedBytes, _ := json.Marshal(wrapped)
 
-	fullURL := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", geminicli.GeminiCliBaseURL)
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(geminicli.GeminiCliBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	fullURL := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", normalizedBaseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewReader(wrappedBytes))
 	if err != nil {
@@ -600,13 +661,7 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		}
 		if candidates, ok := data["candidates"].([]any); ok && len(candidates) > 0 {
 			if candidate, ok := candidates[0].(map[string]any); ok {
-				// Check for completion
-				if finishReason, ok := candidate["finishReason"].(string); ok && finishReason != "" {
-					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-					return nil
-				}
-
-				// Extract content
+				// Extract content first (before checking completion)
 				if content, ok := candidate["content"].(map[string]any); ok {
 					if parts, ok := content["parts"].([]any); ok {
 						for _, part := range parts {
@@ -617,6 +672,12 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 							}
 						}
 					}
+				}
+
+				// Check for completion after extracting content
+				if finishReason, ok := candidate["finishReason"].(string); ok && finishReason != "" {
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+					return nil
 				}
 			}
 		}

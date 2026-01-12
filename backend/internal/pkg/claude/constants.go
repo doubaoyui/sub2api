@@ -1,3 +1,4 @@
+// Package claude provides constants and helpers for Claude API integration.
 package claude
 
 // Claude Code 客户端相关常量
@@ -16,7 +17,13 @@ const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleav
 // HaikuBetaHeader Haiku 模型使用的 anthropic-beta header（不需要 claude-code beta）
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking
 
-// Claude Code 客户端默认请求头
+// APIKeyBetaHeader API-key 账号建议使用的 anthropic-beta header（不包含 oauth）
+const APIKeyBetaHeader = BetaClaudeCode + "," + BetaInterleavedThinking + "," + BetaFineGrainedToolStreaming
+
+// APIKeyHaikuBetaHeader Haiku 模型在 API-key 账号下使用的 anthropic-beta header（不包含 oauth / claude-code）
+const APIKeyHaikuBetaHeader = BetaInterleavedThinking
+
+// DefaultHeaders 是 Claude Code 客户端默认请求头。
 var DefaultHeaders = map[string]string{
 	"User-Agent":                                "claude-cli/2.0.62 (external, cli)",
 	"X-Stainless-Lang":                          "js",

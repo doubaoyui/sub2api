@@ -6,9 +6,16 @@ import (
 	"log"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/infrastructure/errors"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
+
+// MaxExpiresAt is the maximum allowed expiration date (year 2099)
+// This prevents time.Time JSON serialization errors (RFC 3339 requires year <= 9999)
+var MaxExpiresAt = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
+
+// MaxValidityDays is the maximum allowed validity days for subscriptions (100 years)
+const MaxValidityDays = 36500
 
 var (
 	ErrSubscriptionNotFound      = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
@@ -19,6 +26,7 @@ var (
 	ErrDailyLimitExceeded        = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded       = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded      = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
+	ErrSubscriptionNilInput      = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 )
 
 // SubscriptionService 订阅服务
@@ -111,6 +119,9 @@ func (s *SubscriptionService) AssignOrExtendSubscription(ctx context.Context, in
 	if validityDays <= 0 {
 		validityDays = 30
 	}
+	if validityDays > MaxValidityDays {
+		validityDays = MaxValidityDays
+	}
 
 	// 已有订阅，执行续期
 	if existingSub != nil {
@@ -123,6 +134,11 @@ func (s *SubscriptionService) AssignOrExtendSubscription(ctx context.Context, in
 		} else {
 			// 已过期：从当前时间开始计算
 			newExpiresAt = now.AddDate(0, 0, validityDays)
+		}
+
+		// 确保不超过最大过期时间
+		if newExpiresAt.After(MaxExpiresAt) {
+			newExpiresAt = MaxExpiresAt
 		}
 
 		// 更新过期时间
@@ -189,13 +205,21 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 	if validityDays <= 0 {
 		validityDays = 30
 	}
+	if validityDays > MaxValidityDays {
+		validityDays = MaxValidityDays
+	}
 
 	now := time.Now()
+	expiresAt := now.AddDate(0, 0, validityDays)
+	if expiresAt.After(MaxExpiresAt) {
+		expiresAt = MaxExpiresAt
+	}
+
 	sub := &UserSubscription{
 		UserID:     input.UserID,
 		GroupID:    input.GroupID,
 		StartsAt:   now,
-		ExpiresAt:  now.AddDate(0, 0, validityDays),
+		ExpiresAt:  expiresAt,
 		Status:     SubscriptionStatusActive,
 		AssignedAt: now,
 		Notes:      input.Notes,
@@ -291,8 +315,17 @@ func (s *SubscriptionService) ExtendSubscription(ctx context.Context, subscripti
 		return nil, ErrSubscriptionNotFound
 	}
 
+	// 限制延长天数
+	if days > MaxValidityDays {
+		days = MaxValidityDays
+	}
+
 	// 计算新的过期时间
 	newExpiresAt := sub.ExpiresAt.AddDate(0, 0, days)
+	if newExpiresAt.After(MaxExpiresAt) {
+		newExpiresAt = MaxExpiresAt
+	}
+
 	if err := s.userSubRepo.ExtendExpiry(ctx, subscriptionID, newExpiresAt); err != nil {
 		return nil, err
 	}
@@ -457,6 +490,7 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 }
 
 // CheckUsageLimits 检查使用限额（返回错误如果超限）
+// 用于中间件的快速预检查，additionalCost 通常为 0
 func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSubscription, group *Group, additionalCost float64) error {
 	if !sub.CheckDailyLimit(group, additionalCost) {
 		return ErrDailyLimitExceeded

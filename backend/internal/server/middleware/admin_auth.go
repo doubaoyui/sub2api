@@ -1,3 +1,4 @@
+// Package middleware provides HTTP middleware for authentication, authorization, and request processing.
 package middleware
 
 import (
@@ -29,10 +30,24 @@ func adminAuth(
 	settingService *service.SettingService,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// WebSocket upgrade requests cannot set Authorization headers in browsers.
+		// For admin WebSocket endpoints (e.g. Ops realtime), allow passing the JWT via
+		// Sec-WebSocket-Protocol (subprotocol list) using a prefixed token item:
+		//   Sec-WebSocket-Protocol: sub2api-admin, jwt.<token>
+		if isWebSocketUpgradeRequest(c) {
+			if token := extractJWTFromWebSocketSubprotocol(c); token != "" {
+				if !validateJWTForAdmin(c, token, authService, userService) {
+					return
+				}
+				c.Next()
+				return
+			}
+		}
+
 		// 检查 x-api-key header（Admin API Key 认证）
 		apiKey := c.GetHeader("x-api-key")
 		if apiKey != "" {
-			if !validateAdminApiKey(c, apiKey, settingService, userService) {
+			if !validateAdminAPIKey(c, apiKey, settingService, userService) {
 				return
 			}
 			c.Next()
@@ -57,14 +72,52 @@ func adminAuth(
 	}
 }
 
-// validateAdminApiKey 验证管理员 API Key
-func validateAdminApiKey(
+func isWebSocketUpgradeRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	// RFC6455 handshake uses:
+	//   Connection: Upgrade
+	//   Upgrade: websocket
+	upgrade := strings.ToLower(strings.TrimSpace(c.GetHeader("Upgrade")))
+	if upgrade != "websocket" {
+		return false
+	}
+	connection := strings.ToLower(c.GetHeader("Connection"))
+	return strings.Contains(connection, "upgrade")
+}
+
+func extractJWTFromWebSocketSubprotocol(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(c.GetHeader("Sec-WebSocket-Protocol"))
+	if raw == "" {
+		return ""
+	}
+
+	// The header is a comma-separated list of tokens. We reserve the prefix "jwt."
+	// for carrying the admin JWT.
+	for _, part := range strings.Split(raw, ",") {
+		p := strings.TrimSpace(part)
+		if strings.HasPrefix(p, "jwt.") {
+			token := strings.TrimSpace(strings.TrimPrefix(p, "jwt."))
+			if token != "" {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
+// validateAdminAPIKey 验证管理员 API Key
+func validateAdminAPIKey(
 	c *gin.Context,
 	key string,
 	settingService *service.SettingService,
 	userService *service.UserService,
 ) bool {
-	storedKey, err := settingService.GetAdminApiKey(c.Request.Context())
+	storedKey, err := settingService.GetAdminAPIKey(c.Request.Context())
 	if err != nil {
 		AbortWithError(c, 500, "INTERNAL_ERROR", "Internal server error")
 		return false

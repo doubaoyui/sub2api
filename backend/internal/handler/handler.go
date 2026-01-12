@@ -6,19 +6,23 @@ import (
 
 // AdminHandlers contains all admin-related HTTP handlers
 type AdminHandlers struct {
-	Dashboard    *admin.DashboardHandler
-	User         *admin.UserHandler
-	Group        *admin.GroupHandler
-	Account      *admin.AccountHandler
-	OAuth        *admin.OAuthHandler
-	OpenAIOAuth  *admin.OpenAIOAuthHandler
-	GeminiOAuth  *admin.GeminiOAuthHandler
-	Proxy        *admin.ProxyHandler
-	Redeem       *admin.RedeemHandler
-	Setting      *admin.SettingHandler
-	System       *admin.SystemHandler
-	Subscription *admin.SubscriptionHandler
-	Usage        *admin.UsageHandler
+	Dashboard        *admin.DashboardHandler
+	User             *admin.UserHandler
+	Group            *admin.GroupHandler
+	Account          *admin.AccountHandler
+	OAuth            *admin.OAuthHandler
+	OpenAIOAuth      *admin.OpenAIOAuthHandler
+	GeminiOAuth      *admin.GeminiOAuthHandler
+	AntigravityOAuth *admin.AntigravityOAuthHandler
+	Proxy            *admin.ProxyHandler
+	Redeem           *admin.RedeemHandler
+	Promo            *admin.PromoHandler
+	Setting          *admin.SettingHandler
+	Ops              *admin.OpsHandler
+	System           *admin.SystemHandler
+	Subscription     *admin.SubscriptionHandler
+	Usage            *admin.UsageHandler
+	UserAttribute    *admin.UserAttributeHandler
 }
 
 // Handlers contains all HTTP handlers

@@ -1,5 +1,5 @@
 <template>
-  <Modal :show="show" :title="title" size="sm" @close="handleCancel">
+  <BaseDialog :show="show" :title="title" width="narrow" @close="handleCancel">
     <div class="space-y-4">
       <p class="text-sm text-gray-600 dark:text-gray-400">{{ message }}</p>
     </div>
@@ -27,11 +27,15 @@
         </button>
       </div>
     </template>
-  </Modal>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
-import Modal from './Modal.vue'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import BaseDialog from './BaseDialog.vue'
+
+const { t } = useI18n()
 
 interface Props {
   show: boolean
@@ -47,11 +51,12 @@ interface Emits {
   (e: 'cancel'): void
 }
 
-withDefaults(defineProps<Props>(), {
-  confirmText: 'Confirm',
-  cancelText: 'Cancel',
+const props = withDefaults(defineProps<Props>(), {
   danger: false
 })
+
+const confirmText = computed(() => props.confirmText || t('common.confirm'))
+const cancelText = computed(() => props.cancelText || t('common.cancel'))
 
 const emit = defineEmits<Emits>()
 

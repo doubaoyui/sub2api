@@ -10,7 +10,7 @@ const (
 type UsageLog struct {
 	ID        int64
 	UserID    int64
-	ApiKeyID  int64
+	APIKeyID  int64
 	AccountID int64
 	RequestID string
 	Model     string
@@ -38,11 +38,17 @@ type UsageLog struct {
 	Stream       bool
 	DurationMs   *int
 	FirstTokenMs *int
+	UserAgent    *string
+	IPAddress    *string
+
+	// 图片生成字段
+	ImageCount int
+	ImageSize  *string
 
 	CreatedAt time.Time
 
 	User         *User
-	ApiKey       *ApiKey
+	APIKey       *APIKey
 	Account      *Account
 	Group        *Group
 	Subscription *UserSubscription

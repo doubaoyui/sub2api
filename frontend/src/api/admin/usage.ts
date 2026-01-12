@@ -41,24 +41,33 @@ export interface AdminUsageQueryParams extends UsageQueryParams {
  * @param params - Query parameters for filtering and pagination
  * @returns Paginated list of usage logs
  */
-export async function list(params: AdminUsageQueryParams): Promise<PaginatedResponse<UsageLog>> {
+export async function list(
+  params: AdminUsageQueryParams,
+  options?: { signal?: AbortSignal }
+): Promise<PaginatedResponse<UsageLog>> {
   const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/admin/usage', {
-    params
+    params,
+    signal: options?.signal
   })
   return data
 }
 
 /**
  * Get usage statistics with optional filters (admin only)
- * @param params - Query parameters (user_id, api_key_id, period/date range)
+ * @param params - Query parameters for filtering
  * @returns Usage statistics
  */
 export async function getStats(params: {
   user_id?: number
   api_key_id?: number
+  account_id?: number
+  group_id?: number
+  model?: string
+  stream?: boolean
   period?: string
   start_date?: string
   end_date?: string
+  timezone?: string
 }): Promise<AdminUsageStatsResponse> {
   const { data } = await apiClient.get<AdminUsageStatsResponse>('/admin/usage/stats', {
     params

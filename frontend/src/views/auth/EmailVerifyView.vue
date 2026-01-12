@@ -3,7 +3,9 @@
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Verify Your Email</h2>
+        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+          {{ t('auth.verifyYourEmail') }}
+        </h2>
         <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
           We'll send a verification code to
           <span class="font-medium text-gray-700 dark:text-gray-300">{{ email }}</span>
@@ -17,23 +19,11 @@
       >
         <div class="flex items-start gap-3">
           <div class="flex-shrink-0">
-            <svg
-              class="h-5 w-5 text-amber-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="1.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-              />
-            </svg>
+            <Icon name="exclamationCircle" size="md" class="text-amber-500" />
           </div>
           <div class="text-sm text-amber-700 dark:text-amber-400">
-            <p class="font-medium">Session expired</p>
-            <p class="mt-1">Please go back to the registration page and start again.</p>
+            <p class="font-medium">{{ t('auth.sessionExpired') }}</p>
+            <p class="mt-1">{{ t('auth.sessionExpiredDesc') }}</p>
           </div>
         </div>
       </div>
@@ -42,7 +32,9 @@
       <form v-else @submit.prevent="handleVerify" class="space-y-5">
         <!-- Verification Code Input -->
         <div>
-          <label for="code" class="input-label text-center"> Verification Code </label>
+          <label for="code" class="input-label text-center">
+            {{ t('auth.verificationCode') }}
+          </label>
           <input
             id="code"
             v-model="verifyCode"
@@ -59,7 +51,7 @@
           <p v-if="errors.code" class="input-error-text text-center">
             {{ errors.code }}
           </p>
-          <p v-else class="input-hint text-center">Enter the 6-digit code sent to your email</p>
+          <p v-else class="input-hint text-center">{{ t('auth.verificationCodeHint') }}</p>
         </div>
 
         <!-- Code Status -->
@@ -69,19 +61,7 @@
         >
           <div class="flex items-start gap-3">
             <div class="flex-shrink-0">
-              <svg
-                class="h-5 w-5 text-green-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <Icon name="checkCircle" size="md" class="text-green-500" />
             </div>
             <p class="text-sm text-green-700 dark:text-green-400">
               Verification code sent! Please check your inbox.
@@ -111,19 +91,7 @@
           >
             <div class="flex items-start gap-3">
               <div class="flex-shrink-0">
-                <svg
-                  class="h-5 w-5 text-red-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                  />
-                </svg>
+                <Icon name="exclamationCircle" size="md" class="text-red-500" />
               </div>
               <p class="text-sm text-red-700 dark:text-red-400">
                 {{ errorMessage }}
@@ -154,20 +122,7 @@
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             ></path>
           </svg>
-          <svg
-            v-else
-            class="mr-2 h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <Icon v-else name="checkCircle" size="md" class="mr-2" />
           {{ isLoading ? 'Verifying...' : 'Verify & Create Account' }}
         </button>
 
@@ -190,9 +145,11 @@
             "
             class="text-sm text-primary-600 transition-colors hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
           >
-            <span v-if="isSendingCode">Sending...</span>
-            <span v-else-if="turnstileEnabled && !showResendTurnstile">Click to resend code</span>
-            <span v-else>Resend verification code</span>
+            <span v-if="isSendingCode">{{ t('auth.sendingCode') }}</span>
+            <span v-else-if="turnstileEnabled && !showResendTurnstile">
+              {{ t('auth.clickToResend') }}
+            </span>
+            <span v-else>{{ t('auth.resendCode') }}</span>
           </button>
         </div>
       </form>
@@ -204,19 +161,7 @@
         @click="handleBack"
         class="flex items-center gap-2 text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-gray-300"
       >
-        <svg
-          class="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="1.5"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
-          />
-        </svg>
+        <Icon name="arrowLeft" size="sm" />
         Back to registration
       </button>
     </template>
@@ -226,10 +171,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import { getPublicSettings, sendVerifyCode } from '@/api/auth'
+
+const { t } = useI18n()
 
 // ==================== Router & Stores ====================
 
@@ -251,6 +200,7 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 const email = ref<string>('')
 const password = ref<string>('')
 const initialTurnstileToken = ref<string>('')
+const promoCode = ref<string>('')
 const hasRegisterData = ref<boolean>(false)
 
 // Public settings
@@ -279,6 +229,7 @@ onMounted(async () => {
       email.value = registerData.email || ''
       password.value = registerData.password || ''
       initialTurnstileToken.value = registerData.turnstile_token || ''
+      promoCode.value = registerData.promo_code || ''
       hasRegisterData.value = !!(email.value && password.value)
     } catch {
       hasRegisterData.value = false
@@ -432,7 +383,8 @@ async function handleVerify(): Promise<void> {
       email: email.value,
       password: password.value,
       verify_code: verifyCode.value.trim(),
-      turnstile_token: initialTurnstileToken.value || undefined
+      turnstile_token: initialTurnstileToken.value || undefined,
+      promo_code: promoCode.value || undefined
     })
 
     // Clear session data

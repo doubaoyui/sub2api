@@ -1,3 +1,4 @@
+// Package handler provides HTTP request handlers for the application.
 package handler
 
 import (
@@ -14,11 +15,11 @@ import (
 
 // APIKeyHandler handles API key-related requests
 type APIKeyHandler struct {
-	apiKeyService *service.ApiKeyService
+	apiKeyService *service.APIKeyService
 }
 
 // NewAPIKeyHandler creates a new APIKeyHandler
-func NewAPIKeyHandler(apiKeyService *service.ApiKeyService) *APIKeyHandler {
+func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 	return &APIKeyHandler{
 		apiKeyService: apiKeyService,
 	}
@@ -26,16 +27,20 @@ func NewAPIKeyHandler(apiKeyService *service.ApiKeyService) *APIKeyHandler {
 
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
-	Name      string  `json:"name" binding:"required"`
-	GroupID   *int64  `json:"group_id"`   // nullable
-	CustomKey *string `json:"custom_key"` // 可选的自定义key
+	Name        string   `json:"name" binding:"required"`
+	GroupID     *int64   `json:"group_id"`     // nullable
+	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
+	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
 }
 
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
-	Name    string `json:"name"`
-	GroupID *int64 `json:"group_id"`
-	Status  string `json:"status" binding:"omitempty,oneof=active inactive"`
+	Name        string   `json:"name"`
+	GroupID     *int64   `json:"group_id"`
+	Status      string   `json:"status" binding:"omitempty,oneof=active inactive"`
+	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
 }
 
 // List handles listing user's API keys with pagination
@@ -56,9 +61,9 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.ApiKey, 0, len(keys))
+	out := make([]dto.APIKey, 0, len(keys))
 	for i := range keys {
-		out = append(out, *dto.ApiKeyFromService(&keys[i]))
+		out = append(out, *dto.APIKeyFromService(&keys[i]))
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
@@ -90,7 +95,7 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.ApiKeyFromService(key))
+	response.Success(c, dto.APIKeyFromService(key))
 }
 
 // Create handles creating a new API key
@@ -108,10 +113,12 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		return
 	}
 
-	svcReq := service.CreateApiKeyRequest{
-		Name:      req.Name,
-		GroupID:   req.GroupID,
-		CustomKey: req.CustomKey,
+	svcReq := service.CreateAPIKeyRequest{
+		Name:        req.Name,
+		GroupID:     req.GroupID,
+		CustomKey:   req.CustomKey,
+		IPWhitelist: req.IPWhitelist,
+		IPBlacklist: req.IPBlacklist,
 	}
 	key, err := h.apiKeyService.Create(c.Request.Context(), subject.UserID, svcReq)
 	if err != nil {
@@ -119,7 +126,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.ApiKeyFromService(key))
+	response.Success(c, dto.APIKeyFromService(key))
 }
 
 // Update handles updating an API key
@@ -143,7 +150,10 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		return
 	}
 
-	svcReq := service.UpdateApiKeyRequest{}
+	svcReq := service.UpdateAPIKeyRequest{
+		IPWhitelist: req.IPWhitelist,
+		IPBlacklist: req.IPBlacklist,
+	}
 	if req.Name != "" {
 		svcReq.Name = &req.Name
 	}
@@ -158,7 +168,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.ApiKeyFromService(key))
+	response.Success(c, dto.APIKeyFromService(key))
 }
 
 // Delete handles deleting an API key

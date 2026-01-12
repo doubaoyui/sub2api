@@ -5,6 +5,7 @@
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
 
 /**
  * Route definitions with lazy loading
@@ -65,6 +66,15 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'OAuth Callback'
+    }
+  },
+  {
+    path: '/auth/linuxdo/callback',
+    name: 'LinuxDoOAuthCallback',
+    component: () => import('@/views/auth/LinuxDoCallbackView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'LinuxDo OAuth Callback'
     }
   },
 
@@ -164,6 +174,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/ops',
+    name: 'AdminOps',
+    component: () => import('@/views/admin/ops/OpsDashboard.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Ops Monitoring',
+      titleKey: 'admin.ops.title',
+      descriptionKey: 'admin.ops.description'
+    }
+  },
+  {
     path: '/admin/users',
     name: 'AdminUsers',
     component: () => import('@/views/admin/UsersView.vue'),
@@ -236,6 +258,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/promo-codes',
+    name: 'AdminPromoCodes',
+    component: () => import('@/views/admin/PromoCodesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Promo Code Management',
+      titleKey: 'admin.promo.title',
+      descriptionKey: 'admin.promo.description'
+    }
+  },
+  {
     path: '/admin/settings',
     name: 'AdminSettings',
     component: () => import('@/views/admin/SettingsView.vue'),
@@ -302,10 +336,12 @@ router.beforeEach((to, _from, next) => {
   }
 
   // Set page title
+  const appStore = useAppStore()
+  const siteName = appStore.siteName || 'Sub2API'
   if (to.meta.title) {
-    document.title = `${to.meta.title} - Sub2API`
+    document.title = `${to.meta.title} - ${siteName}`
   } else {
-    document.title = 'Sub2API'
+    document.title = siteName
   }
 
   // Check if route requires authentication
@@ -339,6 +375,23 @@ router.beforeEach((to, _from, next) => {
     // User is authenticated but not admin, redirect to user dashboard
     next('/dashboard')
     return
+  }
+
+  // 简易模式下限制访问某些页面
+  if (authStore.isSimpleMode) {
+    const restrictedPaths = [
+      '/admin/groups',
+      '/admin/subscriptions',
+      '/admin/redeem',
+      '/subscriptions',
+      '/redeem'
+    ]
+
+    if (restrictedPaths.some((path) => to.path.startsWith(path))) {
+      // 简易模式下访问受限页面,重定向到仪表板
+      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+      return
+    }
   }
 
   // All checks passed, allow navigation

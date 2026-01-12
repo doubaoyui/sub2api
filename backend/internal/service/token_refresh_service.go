@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ func NewTokenRefreshService(
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
+	antigravityOAuthService *AntigravityOAuthService,
 	cfg *config.Config,
 ) *TokenRefreshService {
 	s := &TokenRefreshService{
@@ -40,6 +42,7 @@ func NewTokenRefreshService(
 		NewClaudeTokenRefresher(oauthService),
 		NewOpenAITokenRefresher(openaiOAuthService),
 		NewGeminiTokenRefresher(geminiOAuthService),
+		NewAntigravityTokenRefresher(antigravityOAuthService),
 	}
 
 	return s
@@ -106,6 +109,9 @@ func (s *TokenRefreshService) processRefresh() {
 		return
 	}
 
+	totalAccounts := len(accounts)
+	oauthAccounts := 0 // 可刷新的OAuth账号数
+	needsRefresh := 0  // 需要刷新的账号数
 	refreshed, failed := 0, 0
 
 	for i := range accounts {
@@ -117,10 +123,14 @@ func (s *TokenRefreshService) processRefresh() {
 				continue
 			}
 
+			oauthAccounts++
+
 			// 检查是否需要刷新
 			if !refresher.NeedsRefresh(account, refreshWindow) {
-				continue
+				break // 不需要刷新，跳过
 			}
+
+			needsRefresh++
 
 			// 执行刷新
 			if err := s.refreshWithRetry(ctx, account, refresher); err != nil {
@@ -136,9 +146,9 @@ func (s *TokenRefreshService) processRefresh() {
 		}
 	}
 
-	if refreshed > 0 || failed > 0 {
-		log.Printf("[TokenRefresh] Cycle complete: %d refreshed, %d failed", refreshed, failed)
-	}
+	// 始终打印周期日志，便于跟踪服务运行状态
+	log.Printf("[TokenRefresh] Cycle complete: total=%d, oauth=%d, needs_refresh=%d, refreshed=%d, failed=%d",
+		totalAccounts, oauthAccounts, needsRefresh, refreshed, failed)
 }
 
 // listActiveAccounts 获取所有active状态的账号
@@ -162,6 +172,15 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 			return nil
 		}
 
+		// Antigravity 账户：不可重试错误直接标记 error 状态并返回
+		if account.Platform == PlatformAntigravity && isNonRetryableRefreshError(err) {
+			errorMsg := fmt.Sprintf("Token refresh failed (non-retryable): %v", err)
+			if setErr := s.accountRepo.SetError(ctx, account.ID, errorMsg); setErr != nil {
+				log.Printf("[TokenRefresh] Failed to set error status for account %d: %v", account.ID, setErr)
+			}
+			return err
+		}
+
 		lastErr = err
 		log.Printf("[TokenRefresh] Account %d attempt %d/%d failed: %v",
 			account.ID, attempt, s.cfg.MaxRetries, err)
@@ -174,11 +193,37 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 		}
 	}
 
-	// 所有重试都失败，标记账号为error状态
-	errorMsg := fmt.Sprintf("Token refresh failed after %d retries: %v", s.cfg.MaxRetries, lastErr)
-	if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
-		log.Printf("[TokenRefresh] Failed to set error status for account %d: %v", account.ID, err)
+	// Antigravity 账户：其他错误仅记录日志，不标记 error（可能是临时网络问题）
+	// 其他平台账户：重试失败后标记 error
+	if account.Platform == PlatformAntigravity {
+		log.Printf("[TokenRefresh] Account %d: refresh failed after %d retries: %v", account.ID, s.cfg.MaxRetries, lastErr)
+	} else {
+		errorMsg := fmt.Sprintf("Token refresh failed after %d retries: %v", s.cfg.MaxRetries, lastErr)
+		if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
+			log.Printf("[TokenRefresh] Failed to set error status for account %d: %v", account.ID, err)
+		}
 	}
 
 	return lastErr
+}
+
+// isNonRetryableRefreshError 判断是否为不可重试的刷新错误
+// 这些错误通常表示凭证已失效，需要用户重新授权
+func isNonRetryableRefreshError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	nonRetryable := []string{
+		"invalid_grant",       // refresh_token 已失效
+		"invalid_client",      // 客户端配置错误
+		"unauthorized_client", // 客户端未授权
+		"access_denied",       // 访问被拒绝
+	}
+	for _, needle := range nonRetryable {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }

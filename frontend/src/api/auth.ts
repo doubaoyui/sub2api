@@ -8,7 +8,7 @@ import type {
   LoginRequest,
   RegisterRequest,
   AuthResponse,
-  User,
+  CurrentUserResponse,
   SendVerifyCodeRequest,
   SendVerifyCodeResponse,
   PublicSettings
@@ -70,9 +70,8 @@ export async function register(userData: RegisterRequest): Promise<AuthResponse>
  * Get current authenticated user
  * @returns User profile data
  */
-export async function getCurrentUser(): Promise<User> {
-  const { data } = await apiClient.get<User>('/auth/me')
-  return data
+export async function getCurrentUser() {
+  return apiClient.get<CurrentUserResponse>('/auth/me')
 }
 
 /**
@@ -114,6 +113,26 @@ export async function sendVerifyCode(
   return data
 }
 
+/**
+ * Validate promo code response
+ */
+export interface ValidatePromoCodeResponse {
+  valid: boolean
+  bonus_amount?: number
+  error_code?: string
+  message?: string
+}
+
+/**
+ * Validate promo code (public endpoint, no auth required)
+ * @param code - Promo code to validate
+ * @returns Validation result with bonus amount if valid
+ */
+export async function validatePromoCode(code: string): Promise<ValidatePromoCodeResponse> {
+  const { data } = await apiClient.post<ValidatePromoCodeResponse>('/auth/validate-promo-code', { code })
+  return data
+}
+
 export const authAPI = {
   login,
   register,
@@ -124,7 +143,8 @@ export const authAPI = {
   getAuthToken,
   clearAuthToken,
   getPublicSettings,
-  sendVerifyCode
+  sendVerifyCode,
+  validatePromoCode
 }
 
 export default authAPI

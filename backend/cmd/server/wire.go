@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/infrastructure"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 )
 
 type Application struct {
@@ -29,26 +28,25 @@ type Application struct {
 
 func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	wire.Build(
-		// 基础设施层 ProviderSets
+		// Infrastructure layer ProviderSets
 		config.ProviderSet,
-		infrastructure.ProviderSet,
 
-		// 业务层 ProviderSets
+		// Business layer ProviderSets
 		repository.ProviderSet,
 		service.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
 
-		// 服务器层 ProviderSet
+		// Server layer ProviderSet
 		server.ProviderSet,
 
 		// BuildInfo provider
 		provideServiceBuildInfo,
 
-		// 清理函数提供者
+		// Cleanup function provider
 		provideCleanup,
 
-		// 应用程序结构体
+		// Application struct
 		wire.Struct(new(Application), "Server", "Cleanup"),
 	)
 	return nil, nil
@@ -62,14 +60,23 @@ func provideServiceBuildInfo(buildInfo handler.BuildInfo) service.BuildInfo {
 }
 
 func provideCleanup(
-	db *gorm.DB,
+	entClient *ent.Client,
 	rdb *redis.Client,
+	opsMetricsCollector *service.OpsMetricsCollector,
+	opsAggregation *service.OpsAggregationService,
+	opsAlertEvaluator *service.OpsAlertEvaluatorService,
+	opsCleanup *service.OpsCleanupService,
+	opsScheduledReport *service.OpsScheduledReportService,
+	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
+	accountExpiry *service.AccountExpiryService,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
+	billingCache *service.BillingCacheService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
 	geminiOAuth *service.GeminiOAuthService,
+	antigravityOAuth *service.AntigravityOAuthService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -80,8 +87,48 @@ func provideCleanup(
 			name string
 			fn   func() error
 		}{
+			{"OpsScheduledReportService", func() error {
+				if opsScheduledReport != nil {
+					opsScheduledReport.Stop()
+				}
+				return nil
+			}},
+			{"OpsCleanupService", func() error {
+				if opsCleanup != nil {
+					opsCleanup.Stop()
+				}
+				return nil
+			}},
+			{"OpsAlertEvaluatorService", func() error {
+				if opsAlertEvaluator != nil {
+					opsAlertEvaluator.Stop()
+				}
+				return nil
+			}},
+			{"OpsAggregationService", func() error {
+				if opsAggregation != nil {
+					opsAggregation.Stop()
+				}
+				return nil
+			}},
+			{"OpsMetricsCollector", func() error {
+				if opsMetricsCollector != nil {
+					opsMetricsCollector.Stop()
+				}
+				return nil
+			}},
+			{"SchedulerSnapshotService", func() error {
+				if schedulerSnapshot != nil {
+					schedulerSnapshot.Stop()
+				}
+				return nil
+			}},
 			{"TokenRefreshService", func() error {
 				tokenRefresh.Stop()
+				return nil
+			}},
+			{"AccountExpiryService", func() error {
+				accountExpiry.Stop()
 				return nil
 			}},
 			{"PricingService", func() error {
@@ -90,6 +137,10 @@ func provideCleanup(
 			}},
 			{"EmailQueueService", func() error {
 				emailQueue.Stop()
+				return nil
+			}},
+			{"BillingCacheService", func() error {
+				billingCache.Stop()
 				return nil
 			}},
 			{"OAuthService", func() error {
@@ -104,15 +155,15 @@ func provideCleanup(
 				geminiOAuth.Stop()
 				return nil
 			}},
+			{"AntigravityOAuthService", func() error {
+				antigravityOAuth.Stop()
+				return nil
+			}},
 			{"Redis", func() error {
 				return rdb.Close()
 			}},
-			{"Database", func() error {
-				sqlDB, err := db.DB()
-				if err != nil {
-					return err
-				}
-				return sqlDB.Close()
+			{"Ent", func() error {
+				return entClient.Close()
 			}},
 		}
 

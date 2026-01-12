@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 type CRSSyncService struct {
@@ -20,6 +23,7 @@ type CRSSyncService struct {
 	oauthService       *OAuthService
 	openaiOAuthService *OpenAIOAuthService
 	geminiOAuthService *GeminiOAuthService
+	cfg                *config.Config
 }
 
 func NewCRSSyncService(
@@ -28,6 +32,7 @@ func NewCRSSyncService(
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
+	cfg *config.Config,
 ) *CRSSyncService {
 	return &CRSSyncService{
 		accountRepo:        accountRepo,
@@ -35,6 +40,7 @@ func NewCRSSyncService(
 		oauthService:       oauthService,
 		openaiOAuthService: openaiOAuthService,
 		geminiOAuthService: geminiOAuthService,
+		cfg:                cfg,
 	}
 }
 
@@ -185,15 +191,35 @@ type crsGeminiAPIKeyAccount struct {
 }
 
 func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput) (*SyncFromCRSResult, error) {
-	baseURL, err := normalizeBaseURL(input.BaseURL)
-	if err != nil {
-		return nil, err
+	if s.cfg == nil {
+		return nil, errors.New("config is not available")
+	}
+	baseURL := strings.TrimSpace(input.BaseURL)
+	if s.cfg.Security.URLAllowlist.Enabled {
+		normalized, err := normalizeBaseURL(baseURL, s.cfg.Security.URLAllowlist.CRSHosts, s.cfg.Security.URLAllowlist.AllowPrivateHosts)
+		if err != nil {
+			return nil, err
+		}
+		baseURL = normalized
+	} else {
+		normalized, err := urlvalidator.ValidateURLFormat(baseURL, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base_url: %w", err)
+		}
+		baseURL = normalized
 	}
 	if strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
 		return nil, errors.New("username and password are required")
 	}
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client, err := httpclient.GetClient(httpclient.Options{
+		Timeout:            20 * time.Second,
+		ValidateResolvedIP: s.cfg.Security.URLAllowlist.Enabled,
+		AllowPrivateHosts:  s.cfg.Security.URLAllowlist.AllowPrivateHosts,
+	})
+	if err != nil {
+		client = &http.Client{Timeout: 20 * time.Second}
+	}
 
 	adminToken, err := crsLogin(ctx, client, baseURL, input.Username, input.Password)
 	if err != nil {
@@ -423,7 +449,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			account := &Account{
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformAnthropic,
-				Type:        AccountTypeApiKey,
+				Type:        AccountTypeAPIKey,
 				Credentials: credentials,
 				Extra:       extra,
 				ProxyID:     proxyID,
@@ -448,7 +474,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Extra = mergeMap(existing.Extra, extra)
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformAnthropic
-		existing.Type = AccountTypeApiKey
+		existing.Type = AccountTypeAPIKey
 		existing.Credentials = mergeMap(existing.Credentials, credentials)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
@@ -667,7 +693,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			account := &Account{
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformOpenAI,
-				Type:        AccountTypeApiKey,
+				Type:        AccountTypeAPIKey,
 				Credentials: credentials,
 				Extra:       extra,
 				ProxyID:     proxyID,
@@ -692,7 +718,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Extra = mergeMap(existing.Extra, extra)
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformOpenAI
-		existing.Type = AccountTypeApiKey
+		existing.Type = AccountTypeAPIKey
 		existing.Credentials = mergeMap(existing.Credentials, credentials)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
@@ -886,7 +912,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			account := &Account{
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformGemini,
-				Type:        AccountTypeApiKey,
+				Type:        AccountTypeAPIKey,
 				Credentials: credentials,
 				Extra:       extra,
 				ProxyID:     proxyID,
@@ -911,7 +937,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Extra = mergeMap(existing.Extra, extra)
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformGemini
-		existing.Type = AccountTypeApiKey
+		existing.Type = AccountTypeAPIKey
 		existing.Credentials = mergeMap(existing.Credentials, credentials)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
@@ -1048,17 +1074,18 @@ func mapCRSStatus(isActive bool, status string) string {
 	return "active"
 }
 
-func normalizeBaseURL(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", errors.New("base_url is required")
+func normalizeBaseURL(raw string, allowlist []string, allowPrivate bool) (string, error) {
+	// 当 allowlist 为空时，不强制要求白名单（只进行基本的 URL 和 SSRF 验证）
+	requireAllowlist := len(allowlist) > 0
+	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		AllowedHosts:     allowlist,
+		RequireAllowlist: requireAllowlist,
+		AllowPrivate:     allowPrivate,
+	})
+	if err != nil {
+		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	u, err := url.Parse(trimmed)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("invalid base_url: %s", trimmed)
-	}
-	u.Path = strings.TrimRight(u.Path, "/")
-	return strings.TrimRight(u.String(), "/"), nil
+	return normalized, nil
 }
 
 // cleanBaseURL removes trailing suffix from base_url in credentials

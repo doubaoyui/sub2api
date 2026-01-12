@@ -1,36 +1,25 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <!-- Page Header Actions -->
-      <div class="flex justify-end gap-3">
-        <button
+    <TablePageLayout>
+      <template #actions>
+        <div class="flex justify-end gap-3">
+          <button
           @click="loadCodes"
           :disabled="loading"
           class="btn btn-secondary"
           :title="t('common.refresh')"
         >
-          <svg
-            :class="['h-5 w-5', loading ? 'animate-spin' : '']"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
-            />
-          </svg>
+          <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
         </button>
         <button @click="showGenerateDialog = true" class="btn btn-primary">
           {{ t('admin.redeem.generateCodes') }}
         </button>
-      </div>
+        </div>
+      </template>
 
-      <!-- Filters and Actions -->
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="max-w-md flex-1">
+      <template #filters>
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="max-w-md flex-1">
           <input
             v-model="searchQuery"
             type="text"
@@ -38,8 +27,8 @@
             class="input"
             @input="handleSearch"
           />
-        </div>
-        <div class="flex gap-2">
+          </div>
+          <div class="flex gap-2">
           <Select
             v-model="filters.type"
             :options="filterTypeOptions"
@@ -55,11 +44,11 @@
           <button @click="handleExportCodes" class="btn btn-secondary">
             {{ t('admin.redeem.exportCsv') }}
           </button>
+          </div>
         </div>
-      </div>
+      </template>
 
-      <!-- Redeem Codes Table -->
-      <div class="card overflow-hidden">
+      <template #table>
         <DataTable :columns="columns" :data="codes" :loading="loading">
           <template #cell-code="{ value }">
             <div class="flex items-center space-x-2">
@@ -74,20 +63,7 @@
                 ]"
                 :title="copiedCode === value ? t('admin.redeem.copied') : t('keys.copyToClipboard')"
               >
-                <svg
-                  v-if="copiedCode !== value"
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
+                <Icon v-if="copiedCode !== value" name="copy" size="sm" :stroke-width="2" />
                 <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     stroke-linecap="round"
@@ -111,7 +87,7 @@
                     : 'badge-primary'
               ]"
             >
-              {{ value }}
+              {{ t('admin.redeem.types.' + value) }}
             </span>
           </template>
 
@@ -119,7 +95,7 @@
             <span class="text-sm font-medium text-gray-900 dark:text-white">
               <template v-if="row.type === 'balance'">${{ value.toFixed(2) }}</template>
               <template v-else-if="row.type === 'subscription'">
-                {{ row.validity_days || 30 }}{{ t('admin.redeem.days') }}
+                {{ row.validity_days || 30 }} {{ t('admin.redeem.days') }}
                 <span v-if="row.group" class="ml-1 text-xs text-gray-500 dark:text-gray-400"
                   >({{ row.group.name }})</span
                 >
@@ -139,7 +115,7 @@
                     : 'badge-danger'
               ]"
             >
-              {{ value }}
+              {{ t('admin.redeem.status.' + value) }}
             </span>
           </template>
 
@@ -151,7 +127,7 @@
 
           <template #cell-used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{
-              value ? formatDate(value) : '-'
+              value ? formatDateTime(value) : '-'
             }}</span>
           </template>
 
@@ -160,8 +136,7 @@
               <button
                 v-if="row.status === 'unused'"
                 @click="handleDelete(row)"
-                class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                :title="t('common.delete')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -171,29 +146,32 @@
                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                   />
                 </svg>
+                <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
               <span v-else class="text-gray-400 dark:text-dark-500">-</span>
             </div>
           </template>
         </DataTable>
-      </div>
+      </template>
 
-      <!-- Pagination -->
-      <Pagination
-        v-if="pagination.total > 0"
-        :page="pagination.page"
-        :total="pagination.total"
-        :page-size="pagination.page_size"
-        @update:page="handlePageChange"
-      />
+      <template #pagination>
+        <Pagination
+          v-if="pagination.total > 0"
+          :page="pagination.page"
+          :total="pagination.total"
+          :page-size="pagination.page_size"
+          @update:page="handlePageChange"
+          @update:pageSize="handlePageSizeChange"
+        />
 
-      <!-- Batch Actions -->
-      <div v-if="filters.status === 'unused'" class="flex justify-end">
-        <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
-          {{ t('admin.redeem.deleteAllUnused') }}
-        </button>
-      </div>
-    </div>
+        <!-- Batch Actions -->
+        <div v-if="filters.status === 'unused'" class="flex justify-end">
+          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
+            {{ t('admin.redeem.deleteAllUnused') }}
+          </button>
+        </div>
+      </template>
+    </TablePageLayout>
 
     <!-- Delete Confirmation Dialog -->
     <ConfirmDialog
@@ -338,14 +316,7 @@
               @click="closeResultDialog"
               class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
             >
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
+              <Icon name="x" size="md" :stroke-width="2" />
             </button>
           </div>
           <!-- Content -->
@@ -370,20 +341,7 @@
                 copiedAll ? 'btn-success' : 'btn-secondary'
               ]"
             >
-              <svg
-                v-if="!copiedAll"
-                class="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                />
-              </svg>
+              <Icon v-if="!copiedAll" name="copy" size="sm" :stroke-width="2" />
               <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
@@ -395,14 +353,7 @@
               {{ copiedAll ? t('admin.redeem.copied') : t('admin.redeem.copyAll') }}
             </button>
             <button @click="downloadGeneratedCodes" class="btn btn-primary flex items-center gap-2">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Icon name="download" size="sm" :stroke-width="2" />
               {{ t('admin.redeem.download') }}
             </button>
           </div>
@@ -413,20 +364,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useClipboard } from '@/composables/useClipboard'
 import { adminAPI } from '@/api/admin'
+import { formatDateTime } from '@/utils/format'
 import type { RedeemCode, RedeemCodeType, Group } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const showGenerateDialog = ref(false)
 const showResultDialog = ref(false)
@@ -518,7 +474,8 @@ const filterTypeOptions = computed(() => [
 const filterStatusOptions = computed(() => [
   { value: '', label: t('admin.redeem.allStatus') },
   { value: 'unused', label: t('admin.redeem.unused') },
-  { value: 'used', label: t('admin.redeem.used') }
+  { value: 'used', label: t('admin.redeem.used') },
+  { value: 'expired', label: t('admin.redeem.status.expired') }
 ])
 
 const codes = ref<RedeemCode[]>([])
@@ -536,6 +493,8 @@ const pagination = reactive({
   pages: 0
 })
 
+let abortController: AbortController | null = null
+
 const showDeleteDialog = ref(false)
 const showDeleteUnusedDialog = ref(false)
 const deletingCode = ref<RedeemCode | null>(null)
@@ -549,26 +508,47 @@ const generateForm = reactive({
   validity_days: 30
 })
 
-const formatDate = (dateString: string): string => {
-  return new Date(dateString).toLocaleDateString()
-}
-
 const loadCodes = async () => {
+  if (abortController) {
+    abortController.abort()
+  }
+  const currentController = new AbortController()
+  abortController = currentController
   loading.value = true
   try {
-    const response = await adminAPI.redeem.list(pagination.page, pagination.page_size, {
-      type: filters.type as RedeemCodeType,
-      status: filters.status as any,
-      search: searchQuery.value || undefined
-    })
+    const response = await adminAPI.redeem.list(
+      pagination.page,
+      pagination.page_size,
+      {
+        type: filters.type as RedeemCodeType,
+        status: filters.status as any,
+        search: searchQuery.value || undefined
+      },
+      {
+        signal: currentController.signal
+      }
+    )
+    if (currentController.signal.aborted) {
+      return
+    }
     codes.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
-  } catch (error) {
+  } catch (error: any) {
+    if (
+      currentController.signal.aborted ||
+      error?.name === 'AbortError' ||
+      error?.code === 'ERR_CANCELED'
+    ) {
+      return
+    }
     appStore.showError(t('admin.redeem.failedToLoad'))
     console.error('Error loading redeem codes:', error)
   } finally {
-    loading.value = false
+    if (abortController === currentController && !currentController.signal.aborted) {
+      loading.value = false
+      abortController = null
+    }
   }
 }
 
@@ -583,6 +563,12 @@ const handleSearch = () => {
 
 const handlePageChange = (page: number) => {
   pagination.page = page
+  loadCodes()
+}
+
+const handlePageSizeChange = (pageSize: number) => {
+  pagination.page_size = pageSize
+  pagination.page = 1
   loadCodes()
 }
 
@@ -618,15 +604,12 @@ const handleGenerateCodes = async () => {
 }
 
 const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
+  const success = await clipboardCopy(text, t('admin.redeem.copied'))
+  if (success) {
     copiedCode.value = text
     setTimeout(() => {
       copiedCode.value = null
     }, 2000)
-  } catch (error) {
-    appStore.showError(t('admin.redeem.failedToCopy'))
-    console.error('Error copying to clipboard:', error)
   }
 }
 
@@ -709,5 +692,10 @@ const loadSubscriptionGroups = async () => {
 onMounted(() => {
   loadCodes()
   loadSubscriptionGroups()
+})
+
+onUnmounted(() => {
+  clearTimeout(searchTimeout)
+  abortController?.abort()
 })
 </script>

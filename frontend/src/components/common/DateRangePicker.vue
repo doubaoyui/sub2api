@@ -6,33 +6,17 @@
       :class="['date-picker-trigger', isOpen && 'date-picker-trigger-open']"
     >
       <span class="date-picker-icon">
-        <svg
-          class="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          stroke-width="1.5"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"
-          />
-        </svg>
+        <Icon name="calendar" size="sm" />
       </span>
       <span class="date-picker-value">
         {{ displayValue }}
       </span>
       <span class="date-picker-chevron">
-        <svg
-          :class="['h-4 w-4 transition-transform duration-200', isOpen && 'rotate-180']"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          stroke-width="1.5"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-        </svg>
+        <Icon
+          name="chevronDown"
+          size="sm"
+          :class="['transition-transform duration-200', isOpen && 'rotate-180']"
+        />
       </span>
     </button>
 
@@ -59,25 +43,13 @@
             <input
               type="date"
               v-model="localStartDate"
-              :max="localEndDate || today"
+              :max="localEndDate || tomorrow"
               class="date-picker-input"
               @change="onDateChange"
             />
           </div>
           <div class="date-picker-separator">
-            <svg
-              class="h-4 w-4 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M17.25 8.25L21 12m0 0l-3.75 3.75M21 12H3"
-              />
-            </svg>
+            <Icon name="arrowRight" size="sm" class="text-gray-400" />
           </div>
           <div class="date-picker-field">
             <label class="date-picker-label">{{ t('dates.endDate') }}</label>
@@ -85,7 +57,7 @@
               type="date"
               v-model="localEndDate"
               :min="localStartDate"
-              :max="today"
+              :max="tomorrow"
               class="date-picker-input"
               @change="onDateChange"
             />
@@ -106,6 +78,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Icon from '@/components/icons/Icon.vue'
 
 interface DatePreset {
   labelKey: string
@@ -135,7 +108,30 @@ const localStartDate = ref(props.startDate)
 const localEndDate = ref(props.endDate)
 const activePreset = ref<string | null>('7days')
 
-const today = computed(() => new Date().toISOString().split('T')[0])
+const today = computed(() => {
+  // Use local timezone to avoid UTC timezone issues
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+})
+
+// Tomorrow's date - used for max date to handle timezone differences
+// When user is in a timezone behind the server, "today" on server might be "tomorrow" locally
+const tomorrow = computed(() => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return formatDateToString(d)
+})
+
+// Helper function to format date to YYYY-MM-DD using local timezone
+const formatDateToString = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 const presets: DatePreset[] = [
   {
@@ -152,7 +148,7 @@ const presets: DatePreset[] = [
     getRange: () => {
       const d = new Date()
       d.setDate(d.getDate() - 1)
-      const yesterday = d.toISOString().split('T')[0]
+      const yesterday = formatDateToString(d)
       return { start: yesterday, end: yesterday }
     }
   },
@@ -163,7 +159,7 @@ const presets: DatePreset[] = [
       const end = today.value
       const d = new Date()
       d.setDate(d.getDate() - 6)
-      const start = d.toISOString().split('T')[0]
+      const start = formatDateToString(d)
       return { start, end }
     }
   },
@@ -174,7 +170,7 @@ const presets: DatePreset[] = [
       const end = today.value
       const d = new Date()
       d.setDate(d.getDate() - 13)
-      const start = d.toISOString().split('T')[0]
+      const start = formatDateToString(d)
       return { start, end }
     }
   },
@@ -185,7 +181,7 @@ const presets: DatePreset[] = [
       const end = today.value
       const d = new Date()
       d.setDate(d.getDate() - 29)
-      const start = d.toISOString().split('T')[0]
+      const start = formatDateToString(d)
       return { start, end }
     }
   },
@@ -194,7 +190,7 @@ const presets: DatePreset[] = [
     value: 'thisMonth',
     getRange: () => {
       const now = new Date()
-      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+      const start = formatDateToString(new Date(now.getFullYear(), now.getMonth(), 1))
       return { start, end: today.value }
     }
   },
@@ -203,8 +199,8 @@ const presets: DatePreset[] = [
     value: 'lastMonth',
     getRange: () => {
       const now = new Date()
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]
-      const end = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0]
+      const start = formatDateToString(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+      const end = formatDateToString(new Date(now.getFullYear(), now.getMonth(), 0))
       return { start, end }
     }
   }

@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios'
 import type { ApiResponse } from '@/types'
+import { getLocale } from '@/i18n'
 
 // ==================== Axios Instance Configuration ====================
 
@@ -20,6 +21,15 @@ export const apiClient: AxiosInstance = axios.create({
 
 // ==================== Request Interceptor ====================
 
+// Get user's timezone
+const getUserTimezone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Attach token from localStorage
@@ -27,6 +37,20 @@ apiClient.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
     }
+
+    // Attach locale for backend translations
+    if (config.headers) {
+      config.headers['Accept-Language'] = getLocale()
+    }
+
+    // Attach timezone for all GET requests (backend may use it for default date ranges)
+    if (config.method === 'get') {
+      if (!config.params) {
+        config.params = {}
+      }
+      config.params.timezone = getUserTimezone()
+    }
+
     return config
   },
   (error) => {
@@ -56,14 +80,66 @@ apiClient.interceptors.response.use(
     return response
   },
   (error: AxiosError<ApiResponse<unknown>>) => {
+    // Request cancellation: keep the original axios cancellation error so callers can ignore it.
+    // Otherwise we'd misclassify it as a generic "network error".
+    if (error.code === 'ERR_CANCELED' || axios.isCancel(error)) {
+      return Promise.reject(error)
+    }
+
     // Handle common errors
     if (error.response) {
       const { status, data } = error.response
+      const url = String(error.config?.url || '')
+
+      // Validate `data` shape to avoid HTML error pages breaking our error handling.
+      const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>
+
+      // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
+      // from ops pages to avoid broken UI states.
+      if (status === 404 && apiData.message === 'Ops monitoring is disabled') {
+        try {
+          localStorage.setItem('ops_monitoring_enabled_cached', 'false')
+        } catch {
+          // ignore localStorage failures
+        }
+        try {
+          window.dispatchEvent(new CustomEvent('ops-monitoring-disabled'))
+        } catch {
+          // ignore event failures
+        }
+
+        if (window.location.pathname.startsWith('/admin/ops')) {
+          window.location.href = '/admin/settings'
+        }
+
+        return Promise.reject({
+          status,
+          code: 'OPS_DISABLED',
+          message: apiData.message || error.message,
+          url
+        })
+      }
 
       // 401: Unauthorized - clear token and redirect to login
       if (status === 401) {
+        const hasToken = !!localStorage.getItem('auth_token')
+        const url = error.config?.url || ''
+        const isAuthEndpoint =
+          url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
+        const headers = error.config?.headers as Record<string, unknown> | undefined
+        const authHeader = headers?.Authorization ?? headers?.authorization
+        const sentAuth =
+          typeof authHeader === 'string'
+            ? authHeader.trim() !== ''
+            : Array.isArray(authHeader)
+            ? authHeader.length > 0
+            : !!authHeader
+
         localStorage.removeItem('auth_token')
         localStorage.removeItem('auth_user')
+        if ((hasToken || sentAuth) && !isAuthEndpoint) {
+          sessionStorage.setItem('auth_expired', '1')
+        }
         // Only redirect if not already on login page
         if (!window.location.pathname.includes('/login')) {
           window.location.href = '/login'
@@ -73,8 +149,8 @@ apiClient.interceptors.response.use(
       // Return structured error
       return Promise.reject({
         status,
-        code: data?.code,
-        message: data?.message || error.message
+        code: apiData.code,
+        message: apiData.message || apiData.detail || error.message
       })
     }
 

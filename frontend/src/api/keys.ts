@@ -10,14 +10,19 @@ import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedRespons
  * List all API keys for current user
  * @param page - Page number (default: 1)
  * @param pageSize - Items per page (default: 10)
+ * @param options - Optional request options
  * @returns Paginated list of API keys
  */
 export async function list(
   page: number = 1,
-  pageSize: number = 10
+  pageSize: number = 10,
+  options?: {
+    signal?: AbortSignal
+  }
 ): Promise<PaginatedResponse<ApiKey>> {
   const { data } = await apiClient.get<PaginatedResponse<ApiKey>>('/keys', {
-    params: { page, page_size: pageSize }
+    params: { page, page_size: pageSize },
+    signal: options?.signal
   })
   return data
 }
@@ -37,12 +42,16 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param name - Key name
  * @param groupId - Optional group ID
  * @param customKey - Optional custom key value
+ * @param ipWhitelist - Optional IP whitelist
+ * @param ipBlacklist - Optional IP blacklist
  * @returns Created API key
  */
 export async function create(
   name: string,
   groupId?: number | null,
-  customKey?: string
+  customKey?: string,
+  ipWhitelist?: string[],
+  ipBlacklist?: string[]
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
@@ -50,6 +59,12 @@ export async function create(
   }
   if (customKey) {
     payload.custom_key = customKey
+  }
+  if (ipWhitelist && ipWhitelist.length > 0) {
+    payload.ip_whitelist = ipWhitelist
+  }
+  if (ipBlacklist && ipBlacklist.length > 0) {
+    payload.ip_blacklist = ipBlacklist
   }
 
   const { data } = await apiClient.post<ApiKey>('/keys', payload)

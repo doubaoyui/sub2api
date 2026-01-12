@@ -39,9 +39,11 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		SiteName:            settings.SiteName,
 		SiteLogo:            settings.SiteLogo,
 		SiteSubtitle:        settings.SiteSubtitle,
-		ApiBaseUrl:          settings.ApiBaseUrl,
+		APIBaseURL:          settings.APIBaseURL,
 		ContactInfo:         settings.ContactInfo,
-		DocUrl:              settings.DocUrl,
+		DocURL:              settings.DocURL,
+		HomeContent:         settings.HomeContent,
+		LinuxDoOAuthEnabled: settings.LinuxDoOAuthEnabled,
 		Version:             h.version,
 	})
 }

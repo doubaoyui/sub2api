@@ -1,8 +1,8 @@
 <template>
-  <Modal
+  <BaseDialog
     :show="show"
     :title="t('keys.useKeyModal.title')"
-    size="lg"
+    width="wide"
     @close="emit('close')"
   >
     <div class="space-y-4">
@@ -28,8 +28,30 @@
           {{ platformDescription }}
         </p>
 
-        <!-- OS Tabs -->
-        <div class="border-b border-gray-200 dark:border-dark-700">
+        <!-- Client Tabs -->
+        <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
+          <nav class="-mb-px flex space-x-6" aria-label="Client">
+            <button
+              v-for="tab in clientTabs"
+              :key="tab.id"
+              @click="activeClientTab = tab.id"
+              :class="[
+                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
+                activeClientTab === tab.id
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              ]"
+            >
+              <span class="flex items-center gap-2">
+                <component :is="tab.icon" class="w-4 h-4" />
+                {{ tab.label }}
+              </span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- OS/Shell Tabs -->
+        <div v-if="showShellTabs" class="border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex space-x-4" aria-label="Tabs">
             <button
               v-for="tab in currentTabs"
@@ -59,9 +81,7 @@
           >
             <!-- File Hint (if exists) -->
             <p v-if="file.hint" class="text-xs text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
-              <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-              </svg>
+              <Icon name="exclamationCircle" size="sm" class="flex-shrink-0" />
               {{ file.hint }}
             </p>
             <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
@@ -85,16 +105,14 @@
                 </button>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-html="file.highlighted"></code></pre>
+              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
             </div>
           </div>
         </div>
 
         <!-- Usage Note -->
-        <div class="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-          <svg class="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-          </svg>
+        <div v-if="showPlatformNote" class="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+          <Icon name="infoCircle" size="md" class="text-blue-500 flex-shrink-0 mt-0.5" />
           <p class="text-sm text-blue-700 dark:text-blue-300">
             {{ platformNote }}
           </p>
@@ -112,14 +130,15 @@
         </button>
       </div>
     </template>
-  </Modal>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, h, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Modal from '@/components/common/Modal.vue'
-import { useAppStore } from '@/stores/app'
+import BaseDialog from '@/components/common/BaseDialog.vue'
+import Icon from '@/components/icons/Icon.vue'
+import { useClipboard } from '@/composables/useClipboard'
 import type { GroupPlatform } from '@/types'
 
 interface Props {
@@ -142,26 +161,42 @@ interface TabConfig {
 interface FileConfig {
   path: string
   content: string
-  highlighted: string
   hint?: string  // Optional hint message for this file
+  highlighted?: string
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const { t } = useI18n()
-const appStore = useAppStore()
+const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
+const activeClientTab = ref<string>('claude')
 
-// Reset active tab when platform changes
-watch(() => props.platform, (newPlatform) => {
-  if (newPlatform === 'openai') {
-    activeTab.value = 'unix'
-  } else {
-    activeTab.value = 'unix'
+// Reset tabs when platform changes
+const defaultClientTab = computed(() => {
+  switch (props.platform) {
+    case 'openai':
+      return 'codex'
+    case 'gemini':
+      return 'gemini'
+    case 'antigravity':
+      return 'claude'
+    default:
+      return 'claude'
   }
+})
+
+watch(() => props.platform, () => {
+  activeTab.value = 'unix'
+  activeClientTab.value = defaultClientTab.value
+}, { immediate: true })
+
+// Reset shell tab when client changes
+watch(activeClientTab, () => {
+  activeTab.value = 'unix'
 })
 
 // Icon components
@@ -189,8 +224,73 @@ const WindowsIcon = {
   }
 }
 
-// Anthropic tabs (3 shell types)
-const anthropicTabs: TabConfig[] = [
+// Terminal icon for Claude Code
+const TerminalIcon = {
+  render() {
+    return h('svg', {
+      fill: 'none',
+      stroke: 'currentColor',
+      viewBox: '0 0 24 24',
+      'stroke-width': '1.5',
+      class: 'w-4 h-4'
+    }, [
+      h('path', {
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        d: 'm6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 17.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 20.25Z'
+      })
+    ])
+  }
+}
+
+// Sparkle icon for Gemini
+const SparkleIcon = {
+  render() {
+    return h('svg', {
+      fill: 'none',
+      stroke: 'currentColor',
+      viewBox: '0 0 24 24',
+      'stroke-width': '1.5',
+      class: 'w-4 h-4'
+    }, [
+      h('path', {
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        d: 'M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z'
+      })
+    ])
+  }
+}
+
+const clientTabs = computed((): TabConfig[] => {
+  if (!props.platform) return []
+  switch (props.platform) {
+    case 'openai':
+      return [
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    case 'gemini':
+      return [
+        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    case 'antigravity':
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    default:
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+  }
+})
+
+// Shell tabs (3 types for environment variable based configs)
+const shellTabs: TabConfig[] = [
   { id: 'unix', label: 'macOS / Linux', icon: AppleIcon },
   { id: 'cmd', label: 'Windows CMD', icon: WindowsIcon },
   { id: 'powershell', label: 'PowerShell', icon: WindowsIcon }
@@ -202,51 +302,145 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
+const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+
 const currentTabs = computed(() => {
+  if (!showShellTabs.value) return []
   if (props.platform === 'openai') {
     return openaiTabs
   }
-  return anthropicTabs
+  return shellTabs
 })
 
 const platformDescription = computed(() => {
-  if (props.platform === 'openai') {
-    return t('keys.useKeyModal.openai.description')
+  switch (props.platform) {
+    case 'openai':
+      return t('keys.useKeyModal.openai.description')
+    case 'gemini':
+      return t('keys.useKeyModal.gemini.description')
+    case 'antigravity':
+      return t('keys.useKeyModal.antigravity.description')
+    default:
+      return t('keys.useKeyModal.description')
   }
-  return t('keys.useKeyModal.description')
 })
 
 const platformNote = computed(() => {
-  if (props.platform === 'openai') {
-    if (activeTab.value === 'windows') {
-      return t('keys.useKeyModal.openai.noteWindows')
-    }
-    return t('keys.useKeyModal.openai.note')
+  switch (props.platform) {
+    case 'openai':
+      return activeTab.value === 'windows'
+        ? t('keys.useKeyModal.openai.noteWindows')
+        : t('keys.useKeyModal.openai.note')
+    case 'gemini':
+      return t('keys.useKeyModal.gemini.note')
+    case 'antigravity':
+      return activeClientTab.value === 'claude'
+        ? t('keys.useKeyModal.antigravity.claudeNote')
+        : t('keys.useKeyModal.antigravity.geminiNote')
+    default:
+      return t('keys.useKeyModal.note')
   }
-  return t('keys.useKeyModal.note')
 })
 
-// Syntax highlighting helpers
-const keyword = (text: string) => `<span class="text-purple-400">${text}</span>`
-const variable = (text: string) => `<span class="text-cyan-400">${text}</span>`
-const string = (text: string) => `<span class="text-green-400">${text}</span>`
-const operator = (text: string) => `<span class="text-yellow-400">${text}</span>`
-const comment = (text: string) => `<span class="text-gray-500">${text}</span>`
-const key = (text: string) => `<span class="text-blue-400">${text}</span>`
+const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
 
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const wrapToken = (className: string, value: string) =>
+  `<span class="${className}">${escapeHtml(value)}</span>`
+
+const keyword = (value: string) => wrapToken('text-emerald-300', value)
+const variable = (value: string) => wrapToken('text-sky-200', value)
+const operator = (value: string) => wrapToken('text-slate-400', value)
+const string = (value: string) => wrapToken('text-amber-200', value)
+const comment = (value: string) => wrapToken('text-slate-500', value)
+
+// Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
+  const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  const ensureV1 = (value: string) => {
+    const trimmed = value.replace(/\/+$/, '')
+    return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
+  }
+  const apiBase = ensureV1(baseRoot)
+  const antigravityBase = ensureV1(`${baseRoot}/antigravity`)
+  const antigravityGeminiBase = (() => {
+    const trimmed = `${baseRoot}/antigravity`.replace(/\/+$/, '')
+    return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
+  })()
 
-  if (props.platform === 'openai') {
-    return generateOpenAIFiles(baseUrl, apiKey)
+  if (activeClientTab.value === 'opencode') {
+    switch (props.platform) {
+      case 'anthropic':
+        return [generateOpenCodeConfig('anthropic', apiBase, apiKey)]
+      case 'openai':
+        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+      case 'gemini':
+        return [generateOpenCodeConfig('gemini', apiBase, apiKey)]
+      case 'antigravity':
+        return [
+          generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
+          generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
+        ]
+      default:
+        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+    }
   }
 
-  return generateAnthropicFiles(baseUrl, apiKey)
+  switch (props.platform) {
+    case 'openai':
+      return generateOpenAIFiles(baseUrl, apiKey)
+    case 'gemini':
+      return [generateGeminiCliContent(baseUrl, apiKey)]
+    case 'antigravity':
+      if (activeClientTab.value === 'gemini') {
+        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
+      }
+      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+    default:
+      return generateAnthropicFiles(baseUrl, apiKey)
+  }
 })
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  let path: string
+  let content: string
+
+  switch (activeTab.value) {
+    case 'unix':
+      path = 'Terminal'
+      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
+export ANTHROPIC_AUTH_TOKEN="${apiKey}"`
+      break
+    case 'cmd':
+      path = 'Command Prompt'
+      content = `set ANTHROPIC_BASE_URL=${baseUrl}
+set ANTHROPIC_AUTH_TOKEN=${apiKey}`
+      break
+    case 'powershell':
+      path = 'PowerShell'
+      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
+$env:ANTHROPIC_AUTH_TOKEN="${apiKey}"`
+      break
+    default:
+      path = 'Terminal'
+      content = ''
+  }
+
+  return [{ path, content }]
+}
+
+function generateGeminiCliContent(baseUrl: string, apiKey: string): FileConfig {
+  const model = 'gemini-2.5-pro'
+  const modelComment = t('keys.useKeyModal.gemini.modelComment')
   let path: string
   let content: string
   let highlighted: string
@@ -254,24 +448,31 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_AUTH_TOKEN="${apiKey}"`
-      highlighted = `${keyword('export')} ${variable('ANTHROPIC_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('export')} ${variable('ANTHROPIC_AUTH_TOKEN')}${operator('=')}${string(`"${apiKey}"`)}`
+      content = `export GOOGLE_GEMINI_BASE_URL="${baseUrl}"
+export GEMINI_API_KEY="${apiKey}"
+export GEMINI_MODEL="${model}"  # ${modelComment}`
+      highlighted = `${keyword('export')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
+${keyword('export')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
+${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `set ANTHROPIC_BASE_URL=${baseUrl}
-set ANTHROPIC_AUTH_TOKEN=${apiKey}`
-      highlighted = `${keyword('set')} ${variable('ANTHROPIC_BASE_URL')}${operator('=')}${baseUrl}
-${keyword('set')} ${variable('ANTHROPIC_AUTH_TOKEN')}${operator('=')}${apiKey}`
+      content = `set GOOGLE_GEMINI_BASE_URL=${baseUrl}
+set GEMINI_API_KEY=${apiKey}
+set GEMINI_MODEL=${model}`
+      highlighted = `${keyword('set')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(baseUrl)}
+${keyword('set')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(apiKey)}
+${keyword('set')} ${variable('GEMINI_MODEL')}${operator('=')}${string(model)}
+${comment(`REM ${modelComment}`)}`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
-$env:ANTHROPIC_AUTH_TOKEN="${apiKey}"`
-      highlighted = `${keyword('$env:')}${variable('ANTHROPIC_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('$env:')}${variable('ANTHROPIC_AUTH_TOKEN')}${operator('=')}${string(`"${apiKey}"`)}`
+      content = `$env:GOOGLE_GEMINI_BASE_URL="${baseUrl}"
+$env:GEMINI_API_KEY="${apiKey}"
+$env:GEMINI_MODEL="${model}"  # ${modelComment}`
+      highlighted = `${keyword('$env:')}${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
+${keyword('$env:')}${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
+${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
       break
     default:
       path = 'Terminal'
@@ -279,7 +480,7 @@ ${keyword('$env:')}${variable('ANTHROPIC_AUTH_TOKEN')}${operator('=')}${string(`
       highlighted = ''
   }
 
-  return [{ path, content, highlighted }]
+  return { path, content, highlighted }
 }
 
 function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
@@ -301,53 +502,101 @@ base_url = "${baseUrl}"
 wire_api = "responses"
 requires_openai_auth = true`
 
-  const configHighlighted = `${key('model_provider')} ${operator('=')} ${string('"sub2api"')}
-${key('model')} ${operator('=')} ${string('"gpt-5.2-codex"')}
-${key('model_reasoning_effort')} ${operator('=')} ${string('"high"')}
-${key('network_access')} ${operator('=')} ${string('"enabled"')}
-${key('disable_response_storage')} ${operator('=')} ${keyword('true')}
-${key('windows_wsl_setup_acknowledged')} ${operator('=')} ${keyword('true')}
-${key('model_verbosity')} ${operator('=')} ${string('"high"')}
-
-${comment('[model_providers.sub2api]')}
-${key('name')} ${operator('=')} ${string('"sub2api"')}
-${key('base_url')} ${operator('=')} ${string(`"${baseUrl}"`)}
-${key('wire_api')} ${operator('=')} ${string('"responses"')}
-${key('requires_openai_auth')} ${operator('=')} ${keyword('true')}`
-
   // auth.json content
   const authContent = `{
   "OPENAI_API_KEY": "${apiKey}"
-}`
-
-  const authHighlighted = `{
-  ${key('"OPENAI_API_KEY"')}: ${string(`"${apiKey}"`)}
 }`
 
   return [
     {
       path: `${configDir}/config.toml`,
       content: configContent,
-      highlighted: configHighlighted,
       hint: t('keys.useKeyModal.openai.configTomlHint')
     },
     {
       path: `${configDir}/auth.json`,
-      content: authContent,
-      highlighted: authHighlighted
+      content: authContent
     }
   ]
 }
 
+function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: string, pathLabel?: string): FileConfig {
+  const provider: Record<string, any> = {
+    [platform]: {
+      options: {
+        baseURL: baseUrl,
+        apiKey,
+        ...(platform === 'openai' ? { store: false } : {})
+      }
+    }
+  }
+  const openaiModels = {
+    'gpt-5.2-codex': {
+      name: 'GPT-5.2 Codex',
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {}
+      }
+    }
+  }
+  const geminiModels = {
+    'gemini-3-pro-high': { name: 'Gemini 3 Pro High' },
+    'gemini-3-pro-low': { name: 'Gemini 3 Pro Low' },
+    'gemini-3-pro-preview': { name: 'Gemini 3 Pro Preview' },
+    'gemini-3-pro-image': { name: 'Gemini 3 Pro Image' },
+    'gemini-3-flash': { name: 'Gemini 3 Flash' },
+    'gemini-2.5-flash-thinking': { name: 'Gemini 2.5 Flash Thinking' },
+    'gemini-2.5-flash': { name: 'Gemini 2.5 Flash' },
+    'gemini-2.5-flash-lite': { name: 'Gemini 2.5 Flash Lite' }
+  }
+  const claudeModels = {
+    'claude-opus-4-5-thinking': { name: 'Claude Opus 4.5 Thinking' },
+    'claude-sonnet-4-5-thinking': { name: 'Claude Sonnet 4.5 Thinking' },
+    'claude-sonnet-4-5': { name: 'Claude Sonnet 4.5' }
+  }
+
+  if (platform === 'gemini') {
+    provider[platform].npm = '@ai-sdk/google'
+    provider[platform].models = geminiModels
+  } else if (platform === 'anthropic') {
+    provider[platform].npm = '@ai-sdk/anthropic'
+  } else if (platform === 'antigravity-claude') {
+    provider[platform].npm = '@ai-sdk/anthropic'
+    provider[platform].name = 'Antigravity (Claude)'
+    provider[platform].models = claudeModels
+  } else if (platform === 'antigravity-gemini') {
+    provider[platform].npm = '@ai-sdk/google'
+    provider[platform].name = 'Antigravity (Gemini)'
+    provider[platform].models = geminiModels
+  } else if (platform === 'openai') {
+    provider[platform].models = openaiModels
+  }
+
+  const content = JSON.stringify(
+    {
+      provider,
+      $schema: 'https://opencode.ai/config.json'
+    },
+    null,
+    2
+  )
+
+  return {
+    path: pathLabel ?? 'opencode.json',
+    content,
+    hint: t('keys.useKeyModal.opencode.hint')
+  }
+}
+
 const copyContent = async (content: string, index: number) => {
-  try {
-    await navigator.clipboard.writeText(content)
+  const success = await clipboardCopy(content, t('keys.copied'))
+  if (success) {
     copiedIndex.value = index
     setTimeout(() => {
       copiedIndex.value = null
     }, 2000)
-  } catch (error) {
-    appStore.showError(t('common.copyFailed'))
   }
 }
 </script>

@@ -19,7 +19,7 @@ type PricingServiceSuite struct {
 
 func (s *PricingServiceSuite) SetupTest() {
 	s.ctx = context.Background()
-	client, ok := NewPricingRemoteClient().(*pricingRemoteClient)
+	client, ok := NewPricingRemoteClient("").(*pricingRemoteClient)
 	require.True(s.T(), ok, "type assertion failed")
 	s.client = client
 }
@@ -32,7 +32,7 @@ func (s *PricingServiceSuite) TearDownTest() {
 }
 
 func (s *PricingServiceSuite) setupServer(handler http.HandlerFunc) {
-	s.srv = httptest.NewServer(handler)
+	s.srv = newLocalTestServer(s.T(), handler)
 }
 
 func (s *PricingServiceSuite) TestFetchPricingJSON_Success() {

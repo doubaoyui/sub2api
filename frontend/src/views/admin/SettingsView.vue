@@ -24,17 +24,11 @@
               class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20"
             >
               <div class="flex items-start">
-                <svg
-                  class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                <Icon
+                  name="exclamationTriangle"
+                  size="md"
+                  class="mt-0.5 flex-shrink-0 text-amber-500"
+                />
                 <p class="ml-3 text-sm text-amber-700 dark:text-amber-300">
                   {{ t('admin.settings.adminApiKey.securityWarning') }}
                 </p>
@@ -153,6 +147,144 @@
           </div>
         </div>
 
+        <!-- Stream Timeout Settings -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.streamTimeout.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.streamTimeout.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <!-- Loading State -->
+            <div v-if="streamTimeoutLoading" class="flex items-center gap-2 text-gray-500">
+              <div class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"></div>
+              {{ t('common.loading') }}
+            </div>
+
+            <template v-else>
+              <!-- Enable Stream Timeout -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">{{
+                    t('admin.settings.streamTimeout.enabled')
+                  }}</label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.streamTimeout.enabledHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="streamTimeoutForm.enabled" />
+              </div>
+
+              <!-- Settings - Only show when enabled -->
+              <div
+                v-if="streamTimeoutForm.enabled"
+                class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+              >
+                <!-- Action -->
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.streamTimeout.action') }}
+                  </label>
+                  <select v-model="streamTimeoutForm.action" class="input w-64">
+                    <option value="temp_unsched">{{ t('admin.settings.streamTimeout.actionTempUnsched') }}</option>
+                    <option value="error">{{ t('admin.settings.streamTimeout.actionError') }}</option>
+                    <option value="none">{{ t('admin.settings.streamTimeout.actionNone') }}</option>
+                  </select>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.streamTimeout.actionHint') }}
+                  </p>
+                </div>
+
+                <!-- Temp Unsched Minutes (only show when action is temp_unsched) -->
+                <div v-if="streamTimeoutForm.action === 'temp_unsched'">
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.streamTimeout.tempUnschedMinutes') }}
+                  </label>
+                  <input
+                    v-model.number="streamTimeoutForm.temp_unsched_minutes"
+                    type="number"
+                    min="1"
+                    max="60"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.streamTimeout.tempUnschedMinutesHint') }}
+                  </p>
+                </div>
+
+                <!-- Threshold Count -->
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.streamTimeout.thresholdCount') }}
+                  </label>
+                  <input
+                    v-model.number="streamTimeoutForm.threshold_count"
+                    type="number"
+                    min="1"
+                    max="10"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.streamTimeout.thresholdCountHint') }}
+                  </p>
+                </div>
+
+                <!-- Threshold Window Minutes -->
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.streamTimeout.thresholdWindowMinutes') }}
+                  </label>
+                  <input
+                    v-model.number="streamTimeoutForm.threshold_window_minutes"
+                    type="number"
+                    min="1"
+                    max="60"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.streamTimeout.thresholdWindowMinutesHint') }}
+                  </p>
+                </div>
+              </div>
+
+              <!-- Save Button -->
+              <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
+                <button
+                  type="button"
+                  @click="saveStreamTimeoutSettings"
+                  :disabled="streamTimeoutSaving"
+                  class="btn btn-primary btn-sm"
+                >
+                  <svg
+                    v-if="streamTimeoutSaving"
+                    class="mr-1 h-4 w-4 animate-spin"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      class="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      stroke-width="4"
+                    ></circle>
+                    <path
+                      class="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  {{ streamTimeoutSaving ? t('common.saving') : t('common.save') }}
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- Registration Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -240,7 +372,7 @@
                       href="https://dash.cloudflare.com/"
                       target="_blank"
                       class="text-primary-600 hover:text-primary-500"
-                      >Cloudflare Dashboard</a
+                      >{{ t('admin.settings.turnstile.cloudflareDashboard') }}</a
                     >
                   </p>
                 </div>
@@ -255,7 +387,111 @@
                     placeholder="0x4AAAAAAA..."
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.settings.turnstile.secretKeyHint') }}
+                    {{
+                      form.turnstile_secret_key_configured
+                        ? t('admin.settings.turnstile.secretKeyConfiguredHint')
+                        : t('admin.settings.turnstile.secretKeyHint')
+                    }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LinuxDo Connect OAuth 登录 -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.linuxdo.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.linuxdo.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">{{
+                  t('admin.settings.linuxdo.enable')
+                }}</label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.linuxdo.enableHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.linuxdo_connect_enabled" />
+            </div>
+
+            <div
+              v-if="form.linuxdo_connect_enabled"
+              class="border-t border-gray-100 pt-4 dark:border-dark-700"
+            >
+              <div class="grid grid-cols-1 gap-6">
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.linuxdo.clientId') }}
+                  </label>
+                  <input
+                    v-model="form.linuxdo_connect_client_id"
+                    type="text"
+                    class="input font-mono text-sm"
+                    :placeholder="t('admin.settings.linuxdo.clientIdPlaceholder')"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.linuxdo.clientIdHint') }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.linuxdo.clientSecret') }}
+                  </label>
+                  <input
+                    v-model="form.linuxdo_connect_client_secret"
+                    type="password"
+                    class="input font-mono text-sm"
+                    :placeholder="
+                      form.linuxdo_connect_client_secret_configured
+                        ? t('admin.settings.linuxdo.clientSecretConfiguredPlaceholder')
+                        : t('admin.settings.linuxdo.clientSecretPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.linuxdo_connect_client_secret_configured
+                        ? t('admin.settings.linuxdo.clientSecretConfiguredHint')
+                        : t('admin.settings.linuxdo.clientSecretHint')
+                    }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.settings.linuxdo.redirectUrl') }}
+                  </label>
+                  <input
+                    v-model="form.linuxdo_connect_redirect_url"
+                    type="url"
+                    class="input font-mono text-sm"
+                    :placeholder="t('admin.settings.linuxdo.redirectUrlPlaceholder')"
+                  />
+                  <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm w-fit"
+                      @click="setAndCopyLinuxdoRedirectUrl"
+                    >
+                      {{ t('admin.settings.linuxdo.quickSetCopy') }}
+                    </button>
+                    <code
+                      v-if="linuxdoRedirectUrlSuggestion"
+                      class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+                    >
+                      {{ linuxdoRedirectUrlSuggestion }}
+                    </code>
+                  </div>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.linuxdo.redirectUrlHint') }}
                   </p>
                 </div>
               </div>
@@ -326,7 +562,12 @@
                 <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.site.siteName') }}
                 </label>
-                <input v-model="form.site_name" type="text" class="input" placeholder="Sub2API" />
+                <input
+                  v-model="form.site_name"
+                  type="text"
+                  class="input"
+                  :placeholder="t('admin.settings.site.siteNamePlaceholder')"
+                />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.settings.site.siteNameHint') }}
                 </p>
@@ -339,7 +580,7 @@
                   v-model="form.site_subtitle"
                   type="text"
                   class="input"
-                  placeholder="Subscription to API Conversion Platform"
+                  :placeholder="t('admin.settings.site.siteSubtitlePlaceholder')"
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.settings.site.siteSubtitleHint') }}
@@ -356,7 +597,7 @@
                 v-model="form.api_base_url"
                 type="text"
                 class="input font-mono text-sm"
-                placeholder="https://api.example.com"
+                :placeholder="t('admin.settings.site.apiBaseUrlPlaceholder')"
               />
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.site.apiBaseUrlHint') }}
@@ -388,7 +629,7 @@
                 v-model="form.doc_url"
                 type="url"
                 class="input font-mono text-sm"
-                placeholder="https://docs.example.com"
+                :placeholder="t('admin.settings.site.docUrlPlaceholder')"
               />
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.site.docUrlHint') }}
@@ -439,19 +680,7 @@
                         class="hidden"
                         @change="handleLogoUpload"
                       />
-                      <svg
-                        class="mr-1.5 h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                        />
-                      </svg>
+                      <Icon name="upload" size="sm" class="mr-1.5" :stroke-width="2" />
                       {{ t('admin.settings.site.uploadImage') }}
                     </label>
                     <button
@@ -460,19 +689,7 @@
                       @click="form.site_logo = ''"
                       class="btn btn-secondary btn-sm text-red-600 hover:text-red-700 dark:text-red-400"
                     >
-                      <svg
-                        class="mr-1.5 h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
+                      <Icon name="trash" size="sm" class="mr-1.5" :stroke-width="2" />
                       {{ t('admin.settings.site.remove') }}
                     </button>
                   </div>
@@ -482,6 +699,26 @@
                   <p v-if="logoError" class="text-xs text-red-500">{{ logoError }}</p>
                 </div>
               </div>
+            </div>
+
+            <!-- Home Content -->
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.site.homeContent') }}
+              </label>
+              <textarea
+                v-model="form.home_content"
+                rows="6"
+                class="input font-mono text-sm"
+                :placeholder="t('admin.settings.site.homeContentPlaceholder')"
+              ></textarea>
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.site.homeContentHint') }}
+              </p>
+              <!-- iframe CSP Warning -->
+              <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                {{ t('admin.settings.site.homeContentIframeWarning') }}
+              </p>
             </div>
           </div>
         </div>
@@ -537,7 +774,7 @@
                   v-model="form.smtp_host"
                   type="text"
                   class="input"
-                  placeholder="smtp.gmail.com"
+                  :placeholder="t('admin.settings.smtp.hostPlaceholder')"
                 />
               </div>
               <div>
@@ -550,7 +787,7 @@
                   min="1"
                   max="65535"
                   class="input"
-                  placeholder="587"
+                  :placeholder="t('admin.settings.smtp.portPlaceholder')"
                 />
               </div>
               <div>
@@ -561,7 +798,7 @@
                   v-model="form.smtp_username"
                   type="text"
                   class="input"
-                  placeholder="your-email@gmail.com"
+                  :placeholder="t('admin.settings.smtp.usernamePlaceholder')"
                 />
               </div>
               <div>
@@ -572,10 +809,18 @@
                   v-model="form.smtp_password"
                   type="password"
                   class="input"
-                  placeholder="********"
+                  :placeholder="
+                    form.smtp_password_configured
+                      ? t('admin.settings.smtp.passwordConfiguredPlaceholder')
+                      : t('admin.settings.smtp.passwordPlaceholder')
+                  "
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.smtp.passwordHint') }}
+                  {{
+                    form.smtp_password_configured
+                      ? t('admin.settings.smtp.passwordConfiguredHint')
+                      : t('admin.settings.smtp.passwordHint')
+                  }}
                 </p>
               </div>
               <div>
@@ -586,7 +831,7 @@
                   v-model="form.smtp_from_email"
                   type="email"
                   class="input"
-                  placeholder="noreply@example.com"
+                  :placeholder="t('admin.settings.smtp.fromEmailPlaceholder')"
                 />
               </div>
               <div>
@@ -597,7 +842,7 @@
                   v-model="form.smtp_from_name"
                   type="text"
                   class="input"
-                  placeholder="Sub2API"
+                  :placeholder="t('admin.settings.smtp.fromNamePlaceholder')"
                 />
               </div>
             </div>
@@ -639,7 +884,7 @@
                   v-model="testEmailAddress"
                   type="email"
                   class="input"
-                  placeholder="test@example.com"
+                  :placeholder="t('admin.settings.testEmail.recipientEmailPlaceholder')"
                 />
               </div>
               <button
@@ -705,16 +950,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
-import type { SystemSettings } from '@/api/admin/settings'
+import type { SystemSettings, UpdateSettingsRequest } from '@/api/admin/settings'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import Icon from '@/components/icons/Icon.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { copyToClipboard } = useClipboard()
 
 const loading = ref(true)
 const saving = ref(false)
@@ -730,7 +978,24 @@ const adminApiKeyMasked = ref('')
 const adminApiKeyOperating = ref(false)
 const newAdminApiKey = ref('')
 
-const form = reactive<SystemSettings>({
+// Stream Timeout 状态
+const streamTimeoutLoading = ref(true)
+const streamTimeoutSaving = ref(false)
+const streamTimeoutForm = reactive({
+  enabled: true,
+  action: 'temp_unsched' as 'temp_unsched' | 'error' | 'none',
+  temp_unsched_minutes: 5,
+  threshold_count: 3,
+  threshold_window_minutes: 10
+})
+
+type SettingsForm = SystemSettings & {
+  smtp_password: string
+  turnstile_secret_key: string
+  linuxdo_connect_client_secret: string
+}
+
+const form = reactive<SettingsForm>({
   registration_enabled: true,
   email_verify_enabled: false,
   default_balance: 0,
@@ -741,18 +1006,57 @@ const form = reactive<SystemSettings>({
   api_base_url: '',
   contact_info: '',
   doc_url: '',
+  home_content: '',
   smtp_host: '',
   smtp_port: 587,
   smtp_username: '',
   smtp_password: '',
+  smtp_password_configured: false,
   smtp_from_email: '',
   smtp_from_name: '',
   smtp_use_tls: true,
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: '',
-  turnstile_secret_key: ''
+  turnstile_secret_key: '',
+  turnstile_secret_key_configured: false,
+  // LinuxDo Connect OAuth 登录
+  linuxdo_connect_enabled: false,
+  linuxdo_connect_client_id: '',
+  linuxdo_connect_client_secret: '',
+  linuxdo_connect_client_secret_configured: false,
+  linuxdo_connect_redirect_url: '',
+  // Model fallback
+  enable_model_fallback: false,
+  fallback_model_anthropic: 'claude-3-5-sonnet-20241022',
+  fallback_model_openai: 'gpt-4o',
+  fallback_model_gemini: 'gemini-2.5-pro',
+  fallback_model_antigravity: 'gemini-2.5-pro',
+  // Identity patch (Claude -> Gemini)
+  enable_identity_patch: true,
+  identity_patch_prompt: '',
+  // Ops monitoring (vNext)
+  ops_monitoring_enabled: true,
+  ops_realtime_monitoring_enabled: true,
+  ops_query_mode_default: 'auto',
+  ops_metrics_interval_seconds: 60
 })
+
+// LinuxDo OAuth redirect URL suggestion
+const linuxdoRedirectUrlSuggestion = computed(() => {
+  if (typeof window === 'undefined') return ''
+  const origin =
+    window.location.origin || `${window.location.protocol}//${window.location.host}`
+  return `${origin}/api/v1/auth/oauth/linuxdo/callback`
+})
+
+async function setAndCopyLinuxdoRedirectUrl() {
+  const url = linuxdoRedirectUrlSuggestion.value
+  if (!url) return
+
+  form.linuxdo_connect_redirect_url = url
+  await copyToClipboard(url, t('admin.settings.linuxdo.redirectUrlSetAndCopied'))
+}
 
 function handleLogoUpload(event: Event) {
   const input = event.target as HTMLInputElement
@@ -797,6 +1101,9 @@ async function loadSettings() {
   try {
     const settings = await adminAPI.settings.getSettings()
     Object.assign(form, settings)
+    form.smtp_password = ''
+    form.turnstile_secret_key = ''
+    form.linuxdo_connect_client_secret = ''
   } catch (error: any) {
     appStore.showError(
       t('admin.settings.failedToLoad') + ': ' + (error.message || t('common.unknownError'))
@@ -809,7 +1116,45 @@ async function loadSettings() {
 async function saveSettings() {
   saving.value = true
   try {
-    await adminAPI.settings.updateSettings(form)
+    const payload: UpdateSettingsRequest = {
+      registration_enabled: form.registration_enabled,
+      email_verify_enabled: form.email_verify_enabled,
+      default_balance: form.default_balance,
+      default_concurrency: form.default_concurrency,
+      site_name: form.site_name,
+      site_logo: form.site_logo,
+      site_subtitle: form.site_subtitle,
+      api_base_url: form.api_base_url,
+      contact_info: form.contact_info,
+      doc_url: form.doc_url,
+      home_content: form.home_content,
+      smtp_host: form.smtp_host,
+      smtp_port: form.smtp_port,
+      smtp_username: form.smtp_username,
+      smtp_password: form.smtp_password || undefined,
+      smtp_from_email: form.smtp_from_email,
+      smtp_from_name: form.smtp_from_name,
+      smtp_use_tls: form.smtp_use_tls,
+      turnstile_enabled: form.turnstile_enabled,
+      turnstile_site_key: form.turnstile_site_key,
+      turnstile_secret_key: form.turnstile_secret_key || undefined,
+      linuxdo_connect_enabled: form.linuxdo_connect_enabled,
+      linuxdo_connect_client_id: form.linuxdo_connect_client_id,
+      linuxdo_connect_client_secret: form.linuxdo_connect_client_secret || undefined,
+      linuxdo_connect_redirect_url: form.linuxdo_connect_redirect_url,
+      enable_model_fallback: form.enable_model_fallback,
+      fallback_model_anthropic: form.fallback_model_anthropic,
+      fallback_model_openai: form.fallback_model_openai,
+      fallback_model_gemini: form.fallback_model_gemini,
+      fallback_model_antigravity: form.fallback_model_antigravity,
+      enable_identity_patch: form.enable_identity_patch,
+      identity_patch_prompt: form.identity_patch_prompt
+    }
+    const updated = await adminAPI.settings.updateSettings(payload)
+    Object.assign(form, updated)
+    form.smtp_password = ''
+    form.turnstile_secret_key = ''
+    form.linuxdo_connect_client_secret = ''
     // Refresh cached public settings so sidebar/header update immediately
     await appStore.fetchPublicSettings(true)
     appStore.showSuccess(t('admin.settings.settingsSaved'))
@@ -933,8 +1278,43 @@ function copyNewKey() {
     })
 }
 
+// Stream Timeout 方法
+async function loadStreamTimeoutSettings() {
+  streamTimeoutLoading.value = true
+  try {
+    const settings = await adminAPI.settings.getStreamTimeoutSettings()
+    Object.assign(streamTimeoutForm, settings)
+  } catch (error: any) {
+    console.error('Failed to load stream timeout settings:', error)
+  } finally {
+    streamTimeoutLoading.value = false
+  }
+}
+
+async function saveStreamTimeoutSettings() {
+  streamTimeoutSaving.value = true
+  try {
+    const updated = await adminAPI.settings.updateStreamTimeoutSettings({
+      enabled: streamTimeoutForm.enabled,
+      action: streamTimeoutForm.action,
+      temp_unsched_minutes: streamTimeoutForm.temp_unsched_minutes,
+      threshold_count: streamTimeoutForm.threshold_count,
+      threshold_window_minutes: streamTimeoutForm.threshold_window_minutes
+    })
+    Object.assign(streamTimeoutForm, updated)
+    appStore.showSuccess(t('admin.settings.streamTimeout.saved'))
+  } catch (error: any) {
+    appStore.showError(
+      t('admin.settings.streamTimeout.saveFailed') + ': ' + (error.message || t('common.unknownError'))
+    )
+  } finally {
+    streamTimeoutSaving.value = false
+  }
+}
+
 onMounted(() => {
   loadSettings()
   loadAdminApiKey()
+  loadStreamTimeoutSettings()
 })
 </script>

@@ -16,6 +16,12 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+)
+
+var (
+	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
+	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -28,6 +34,7 @@ type LiteLLMModelPricing struct {
 	LiteLLMProvider             string  `json:"litellm_provider"`
 	Mode                        string  `json:"mode"`
 	SupportsPromptCaching       bool    `json:"supports_prompt_caching"`
+	OutputCostPerImage          float64 `json:"output_cost_per_image"` // 图片生成模型每张图片价格
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -45,6 +52,7 @@ type LiteLLMRawEntry struct {
 	LiteLLMProvider             string   `json:"litellm_provider"`
 	Mode                        string   `json:"mode"`
 	SupportsPromptCaching       bool     `json:"supports_prompt_caching"`
+	OutputCostPerImage          *float64 `json:"output_cost_per_image"`
 }
 
 // PricingService 动态价格服务
@@ -206,14 +214,33 @@ func (s *PricingService) syncWithRemote() error {
 
 // downloadPricingData 从远程下载价格数据
 func (s *PricingService) downloadPricingData() error {
-	log.Printf("[Pricing] Downloading from %s", s.cfg.Pricing.RemoteURL)
+	remoteURL, err := s.validatePricingURL(s.cfg.Pricing.RemoteURL)
+	if err != nil {
+		return err
+	}
+	log.Printf("[Pricing] Downloading from %s", remoteURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	body, err := s.remoteClient.FetchPricingJSON(ctx, s.cfg.Pricing.RemoteURL)
+	var expectedHash string
+	if strings.TrimSpace(s.cfg.Pricing.HashURL) != "" {
+		expectedHash, err = s.fetchRemoteHash()
+		if err != nil {
+			return fmt.Errorf("fetch remote hash: %w", err)
+		}
+	}
+
+	body, err := s.remoteClient.FetchPricingJSON(ctx, remoteURL)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
+	}
+
+	if expectedHash != "" {
+		actualHash := sha256.Sum256(body)
+		if !strings.EqualFold(expectedHash, hex.EncodeToString(actualHash[:])) {
+			return fmt.Errorf("pricing hash mismatch")
+		}
 	}
 
 	// 解析JSON数据（使用灵活的解析方式）
@@ -294,6 +321,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if entry.CacheReadInputTokenCost != nil {
 			pricing.CacheReadInputTokenCost = *entry.CacheReadInputTokenCost
 		}
+		if entry.OutputCostPerImage != nil {
+			pricing.OutputCostPerImage = *entry.OutputCostPerImage
+		}
 
 		result[modelName] = pricing
 	}
@@ -368,10 +398,38 @@ func (s *PricingService) useFallbackPricing() error {
 
 // fetchRemoteHash 从远程获取哈希值
 func (s *PricingService) fetchRemoteHash() (string, error) {
+	hashURL, err := s.validatePricingURL(s.cfg.Pricing.HashURL)
+	if err != nil {
+		return "", err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return s.remoteClient.FetchHashText(ctx, s.cfg.Pricing.HashURL)
+	hash, err := s.remoteClient.FetchHashText(ctx, hashURL)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(hash), nil
+}
+
+func (s *PricingService) validatePricingURL(raw string) (string, error) {
+	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
+		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
+		if err != nil {
+			return "", fmt.Errorf("invalid pricing url: %w", err)
+		}
+		return normalized, nil
+	}
+	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
+		RequireAllowlist: true,
+		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
+	})
+	if err != nil {
+		return "", fmt.Errorf("invalid pricing url: %w", err)
+	}
+	return normalized, nil
 }
 
 // computeFileHash 计算文件哈希
@@ -595,11 +653,8 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 // 2. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
 // 3. 最终回退到 DefaultTestModel (gpt-5.1-codex)
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
-	// 正则匹配日期后缀 (如 -20251222)
-	datePattern := regexp.MustCompile(`-\d{8}$`)
-
 	// 尝试的回退变体
-	variants := s.generateOpenAIModelVariants(model, datePattern)
+	variants := s.generateOpenAIModelVariants(model, openAIModelDatePattern)
 
 	for _, variant := range variants {
 		if pricing, ok := s.pricingData[variant]; ok {
@@ -638,14 +693,13 @@ func (s *PricingService) generateOpenAIModelVariants(model string, datePattern *
 
 	// 2. 提取基础版本号: gpt-5.2-codex -> gpt-5.2
 	// 只匹配纯数字版本号格式 gpt-X 或 gpt-X.Y，不匹配 gpt-4o 这种带字母后缀的
-	basePattern := regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
-	if matches := basePattern.FindStringSubmatch(model); len(matches) > 1 {
+	if matches := openAIModelBasePattern.FindStringSubmatch(model); len(matches) > 1 {
 		addVariant(matches[1])
 	}
 
 	// 3. 同时去掉日期后再提取基础版本号
 	if withoutDate != model {
-		if matches := basePattern.FindStringSubmatch(withoutDate); len(matches) > 1 {
+		if matches := openAIModelBasePattern.FindStringSubmatch(withoutDate); len(matches) > 1 {
 			addVariant(matches[1])
 		}
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/imroc/req/v3"
 )
@@ -54,7 +55,7 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 
-	log.Printf("[OAuth] Step 1 Response - Status: %d, Body: %s", resp.StatusCode, resp.String())
+	log.Printf("[OAuth] Step 1 Response - Status: %d", resp.StatusCode)
 
 	if !resp.IsSuccessState() {
 		return "", fmt.Errorf("failed to get organizations: status %d, body: %s", resp.StatusCode, resp.String())
@@ -84,8 +85,8 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		"code_challenge_method": "S256",
 	}
 
-	reqBodyJSON, _ := json.Marshal(reqBody)
 	log.Printf("[OAuth] Step 2: Getting authorization code from %s", authURL)
+	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(reqBody))
 	log.Printf("[OAuth] Step 2 Request Body: %s", string(reqBodyJSON))
 
 	var result struct {
@@ -113,7 +114,7 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 
-	log.Printf("[OAuth] Step 2 Response - Status: %d, Body: %s", resp.StatusCode, resp.String())
+	log.Printf("[OAuth] Step 2 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
 
 	if !resp.IsSuccessState() {
 		return "", fmt.Errorf("failed to get authorization code: status %d, body: %s", resp.StatusCode, resp.String())
@@ -141,11 +142,11 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		fullCode = authCode + "#" + responseState
 	}
 
-	log.Printf("[OAuth] Step 2 SUCCESS - Got authorization code: %s...", prefix(authCode, 20))
+	log.Printf("[OAuth] Step 2 SUCCESS - Got authorization code")
 	return fullCode, nil
 }
 
-func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string) (*oauth.TokenResponse, error) {
+func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error) {
 	client := s.clientFactory(proxyURL)
 
 	// Parse code which may contain state in format "authCode#state"
@@ -168,8 +169,13 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 		reqBody["state"] = codeState
 	}
 
-	reqBodyJSON, _ := json.Marshal(reqBody)
+	// Setup token requires longer expiration (1 year)
+	if isSetupToken {
+		reqBody["expires_in"] = 31536000 // 365 * 24 * 60 * 60 seconds
+	}
+
 	log.Printf("[OAuth] Step 3: Exchanging code for token at %s", s.tokenURL)
+	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(reqBody))
 	log.Printf("[OAuth] Step 3 Request Body: %s", string(reqBodyJSON))
 
 	var tokenResp oauth.TokenResponse
@@ -186,7 +192,7 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
-	log.Printf("[OAuth] Step 3 Response - Status: %d, Body: %s", resp.StatusCode, resp.String())
+	log.Printf("[OAuth] Step 3 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
 
 	if !resp.IsSuccessState() {
 		return nil, fmt.Errorf("token exchange failed: status %d, body: %s", resp.StatusCode, resp.String())
@@ -199,16 +205,20 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error) {
 	client := s.clientFactory(proxyURL)
 
-	formData := url.Values{}
-	formData.Set("grant_type", "refresh_token")
-	formData.Set("refresh_token", refreshToken)
-	formData.Set("client_id", oauth.ClientID)
+	// 使用 JSON 格式（与 ExchangeCodeForToken 保持一致）
+	// Anthropic OAuth API 期望 JSON 格式的请求体
+	reqBody := map[string]any{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+		"client_id":     oauth.ClientID,
+	}
 
 	var tokenResp oauth.TokenResponse
 
 	resp, err := client.R().
 		SetContext(ctx).
-		SetFormDataFromValues(formData).
+		SetHeader("Content-Type", "application/json").
+		SetBody(reqBody).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
 
@@ -224,23 +234,15 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 }
 
 func createReqClient(proxyURL string) *req.Client {
+	// 禁用 CookieJar，确保每次授权都是干净的会话
 	client := req.C().
+		SetTimeout(60 * time.Second).
 		ImpersonateChrome().
-		SetTimeout(60 * time.Second)
+		SetCookieJar(nil) // 禁用 CookieJar
 
-	if proxyURL != "" {
-		client.SetProxyURL(proxyURL)
+	if strings.TrimSpace(proxyURL) != "" {
+		client.SetProxyURL(strings.TrimSpace(proxyURL))
 	}
 
 	return client
-}
-
-func prefix(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }

@@ -1,23 +1,34 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// NewApiKeyAuthMiddleware 创建 API Key 认证中间件
-func NewApiKeyAuthMiddleware(apiKeyService *service.ApiKeyService, subscriptionService *service.SubscriptionService) ApiKeyAuthMiddleware {
-	return ApiKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService))
+// NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
+func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
+	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, cfg))
 }
 
 // apiKeyAuthWithSubscription API Key认证中间件（支持订阅验证）
-func apiKeyAuthWithSubscription(apiKeyService *service.ApiKeyService, subscriptionService *service.SubscriptionService) gin.HandlerFunc {
+func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		queryKey := strings.TrimSpace(c.Query("key"))
+		queryApiKey := strings.TrimSpace(c.Query("api_key"))
+		if queryKey != "" || queryApiKey != "" {
+			AbortWithError(c, 400, "api_key_in_query_deprecated", "API key in query parameter is deprecated. Please use Authorization header instead.")
+			return
+		}
+
 		// 尝试从Authorization header中提取API key (Bearer scheme)
 		authHeader := c.GetHeader("Authorization")
 		var apiKeyString string
@@ -40,26 +51,16 @@ func apiKeyAuthWithSubscription(apiKeyService *service.ApiKeyService, subscripti
 			apiKeyString = c.GetHeader("x-goog-api-key")
 		}
 
-		// 如果header中没有，尝试从query参数中提取（Google API key风格）
-		if apiKeyString == "" {
-			apiKeyString = c.Query("key")
-		}
-
-		// 兼容常见别名
-		if apiKeyString == "" {
-			apiKeyString = c.Query("api_key")
-		}
-
 		// 如果所有header都没有API key
 		if apiKeyString == "" {
-			AbortWithError(c, 401, "API_KEY_REQUIRED", "API key is required in Authorization header (Bearer scheme), x-api-key header, x-goog-api-key header, or key/api_key query parameter")
+			AbortWithError(c, 401, "API_KEY_REQUIRED", "API key is required in Authorization header (Bearer scheme), x-api-key header, or x-goog-api-key header")
 			return
 		}
 
 		// 从数据库验证API key
 		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
 		if err != nil {
-			if errors.Is(err, service.ErrApiKeyNotFound) {
+			if errors.Is(err, service.ErrAPIKeyNotFound) {
 				AbortWithError(c, 401, "INVALID_API_KEY", "Invalid API key")
 				return
 			}
@@ -73,6 +74,17 @@ func apiKeyAuthWithSubscription(apiKeyService *service.ApiKeyService, subscripti
 			return
 		}
 
+		// 检查 IP 限制（白名单/黑名单）
+		// 注意：错误信息故意模糊，避免暴露具体的 IP 限制机制
+		if len(apiKey.IPWhitelist) > 0 || len(apiKey.IPBlacklist) > 0 {
+			clientIP := ip.GetClientIP(c)
+			allowed, _ := ip.CheckIPRestriction(clientIP, apiKey.IPWhitelist, apiKey.IPBlacklist)
+			if !allowed {
+				AbortWithError(c, 403, "ACCESS_DENIED", "Access denied")
+				return
+			}
+		}
+
 		// 检查关联的用户
 		if apiKey.User == nil {
 			AbortWithError(c, 401, "USER_NOT_FOUND", "User associated with API key not found")
@@ -82,6 +94,19 @@ func apiKeyAuthWithSubscription(apiKeyService *service.ApiKeyService, subscripti
 		// 检查用户状态
 		if !apiKey.User.IsActive() {
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			return
+		}
+
+		if cfg.RunMode == config.RunModeSimple {
+			// 简易模式：跳过余额和订阅检查，但仍需设置必要的上下文
+			c.Set(string(ContextKeyAPIKey), apiKey)
+			c.Set(string(ContextKeyUser), AuthSubject{
+				UserID:      apiKey.User.ID,
+				Concurrency: apiKey.User.Concurrency,
+			})
+			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+			setGroupContext(c, apiKey.Group)
+			c.Next()
 			return
 		}
 
@@ -133,24 +158,25 @@ func apiKeyAuthWithSubscription(apiKeyService *service.ApiKeyService, subscripti
 		}
 
 		// 将API key和用户信息存入上下文
-		c.Set(string(ContextKeyApiKey), apiKey)
+		c.Set(string(ContextKeyAPIKey), apiKey)
 		c.Set(string(ContextKeyUser), AuthSubject{
 			UserID:      apiKey.User.ID,
 			Concurrency: apiKey.User.Concurrency,
 		})
 		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+		setGroupContext(c, apiKey.Group)
 
 		c.Next()
 	}
 }
 
-// GetApiKeyFromContext 从上下文中获取API key
-func GetApiKeyFromContext(c *gin.Context) (*service.ApiKey, bool) {
-	value, exists := c.Get(string(ContextKeyApiKey))
+// GetAPIKeyFromContext 从上下文中获取API key
+func GetAPIKeyFromContext(c *gin.Context) (*service.APIKey, bool) {
+	value, exists := c.Get(string(ContextKeyAPIKey))
 	if !exists {
 		return nil, false
 	}
-	apiKey, ok := value.(*service.ApiKey)
+	apiKey, ok := value.(*service.APIKey)
 	return apiKey, ok
 }
 
@@ -162,4 +188,15 @@ func GetSubscriptionFromContext(c *gin.Context) (*service.UserSubscription, bool
 	}
 	subscription, ok := value.(*service.UserSubscription)
 	return subscription, ok
+}
+
+func setGroupContext(c *gin.Context, group *service.Group) {
+	if !service.IsGroupContextValid(group) {
+		return
+	}
+	if existing, ok := c.Request.Context().Value(ctxkey.Group).(*service.Group); ok && existing != nil && existing.ID == group.ID && service.IsGroupContextValid(existing) {
+		return
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.Group, group)
+	c.Request = c.Request.WithContext(ctx)
 }

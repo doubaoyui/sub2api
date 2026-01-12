@@ -20,7 +20,10 @@ type ProxyProbeServiceSuite struct {
 
 func (s *ProxyProbeServiceSuite) SetupTest() {
 	s.ctx = context.Background()
-	s.prober = &proxyProbeService{ipInfoURL: "http://ipinfo.test/json"}
+	s.prober = &proxyProbeService{
+		ipInfoURL:         "http://ipinfo.test/json",
+		allowPrivateHosts: true,
+	}
 }
 
 func (s *ProxyProbeServiceSuite) TearDownTest() {
@@ -31,25 +34,19 @@ func (s *ProxyProbeServiceSuite) TearDownTest() {
 }
 
 func (s *ProxyProbeServiceSuite) setupProxyServer(handler http.HandlerFunc) {
-	s.proxySrv = httptest.NewServer(handler)
+	s.proxySrv = newLocalTestServer(s.T(), handler)
 }
 
-func (s *ProxyProbeServiceSuite) TestCreateProxyTransport_InvalidURL() {
-	_, err := createProxyTransport("://bad")
+func (s *ProxyProbeServiceSuite) TestProbeProxy_InvalidProxyURL() {
+	_, _, err := s.prober.ProbeProxy(s.ctx, "://bad")
 	require.Error(s.T(), err)
-	require.ErrorContains(s.T(), err, "invalid proxy URL")
+	require.ErrorContains(s.T(), err, "failed to create proxy client")
 }
 
-func (s *ProxyProbeServiceSuite) TestCreateProxyTransport_UnsupportedScheme() {
-	_, err := createProxyTransport("ftp://127.0.0.1:1")
+func (s *ProxyProbeServiceSuite) TestProbeProxy_UnsupportedProxyScheme() {
+	_, _, err := s.prober.ProbeProxy(s.ctx, "ftp://127.0.0.1:1")
 	require.Error(s.T(), err)
-	require.ErrorContains(s.T(), err, "unsupported proxy protocol")
-}
-
-func (s *ProxyProbeServiceSuite) TestCreateProxyTransport_Socks5SetsDialer() {
-	tr, err := createProxyTransport("socks5://127.0.0.1:1080")
-	require.NoError(s.T(), err, "createProxyTransport")
-	require.NotNil(s.T(), tr.DialContext, "expected DialContext to be set for socks5")
+	require.ErrorContains(s.T(), err, "failed to create proxy client")
 }
 
 func (s *ProxyProbeServiceSuite) TestProbeProxy_Success() {

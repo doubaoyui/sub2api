@@ -43,18 +43,11 @@ func (r *ClaudeTokenRefresher) CanRefresh(account *Account) bool {
 // NeedsRefresh 检查token是否需要刷新
 // 基于 expires_at 字段判断是否在刷新窗口内
 func (r *ClaudeTokenRefresher) NeedsRefresh(account *Account, refreshWindow time.Duration) bool {
-	expiresAtStr := account.GetCredential("expires_at")
-	if expiresAtStr == "" {
+	expiresAt := account.GetCredentialAsTime("expires_at")
+	if expiresAt == nil {
 		return false
 	}
-
-	expiresAt, err := strconv.ParseInt(expiresAtStr, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	expiryTime := time.Unix(expiresAt, 0)
-	return time.Until(expiryTime) < refreshWindow
+	return time.Until(*expiresAt) < refreshWindow
 }
 
 // Refresh 执行token刷新

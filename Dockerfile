@@ -6,30 +6,44 @@
 # Stage 3: Final minimal image
 # =============================================================================
 
+ARG NODE_IMAGE=node:24-alpine
+ARG GOLANG_IMAGE=golang:1.25.5-alpine
+ARG ALPINE_IMAGE=alpine:3.20
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS frontend-builder
+FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Install dependencies first (better caching)
-COPY frontend/package*.json ./
-RUN npm ci
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build
 COPY frontend/ ./
-RUN npm run build
+RUN pnpm run build
 
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Builder
 # -----------------------------------------------------------------------------
-FROM golang:1.24-alpine AS backend-builder
+FROM ${GOLANG_IMAGE} AS backend-builder
 
 # Build arguments for version info (set by CI)
 ARG VERSION=docker
 ARG COMMIT=docker
 ARG DATE
+ARG GOPROXY
+ARG GOSUMDB
+
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -56,7 +70,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # -----------------------------------------------------------------------------
 # Stage 3: Final Runtime Image
 # -----------------------------------------------------------------------------
-FROM alpine:3.19
+FROM ${ALPINE_IMAGE}
 
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"

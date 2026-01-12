@@ -1,9 +1,29 @@
 <template>
-  <Modal :show="show" :title="t('admin.accounts.editAccount')" size="lg" @close="handleClose">
-    <form v-if="account" @submit.prevent="handleSubmit" class="space-y-5">
+  <BaseDialog
+    :show="show"
+    :title="t('admin.accounts.editAccount')"
+    width="normal"
+    @close="handleClose"
+  >
+    <form
+      v-if="account"
+      id="edit-account-form"
+      @submit.prevent="handleSubmit"
+      class="space-y-5"
+    >
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
-        <input v-model="form.name" type="text" required class="input" />
+        <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
+      </div>
+      <div>
+        <label class="input-label">{{ t('admin.accounts.notes') }}</label>
+        <textarea
+          v-model="form.notes"
+          rows="3"
+          class="input"
+          :placeholder="t('admin.accounts.notesPlaceholder')"
+        ></textarea>
+        <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
       <!-- API Key fields (only for apikey type) -->
@@ -22,7 +42,7 @@
                   : 'https://api.anthropic.com'
             "
           />
-          <p class="input-hint">{{ t('admin.accounts.baseUrlHint') }}</p>
+          <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -101,47 +121,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
-              <p class="text-xs text-blue-700 dark:text-blue-400">
-                <svg
-                  class="mr-1 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.selectAllowedModels') }}
-              </p>
-            </div>
-
-            <!-- Model Checkbox List -->
-            <div class="mb-3 grid grid-cols-2 gap-2">
-              <label
-                v-for="model in commonModels"
-                :key="model.value"
-                class="flex cursor-pointer items-center rounded-lg border p-3 transition-all hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700"
-                :class="
-                  allowedModels.includes(model.value)
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                    : 'border-gray-200'
-                "
-              >
-                <input
-                  type="checkbox"
-                  :value="model.value"
-                  v-model="allowedModels"
-                  class="mr-2 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span class="text-sm text-gray-700 dark:text-gray-300">{{ model.label }}</span>
-              </label>
-            </div>
-
+            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -285,19 +265,7 @@
           <div v-if="customErrorCodesEnabled" class="space-y-3">
             <div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
               <p class="text-xs text-amber-700 dark:text-amber-400">
-                <svg
-                  class="mr-1 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
+                <Icon name="exclamationTriangle" size="sm" class="mr-1 inline" :stroke-width="2" />
                 {{ t('admin.accounts.customErrorCodesWarning') }}
               </p>
             </div>
@@ -323,7 +291,7 @@
             <!-- Manual input -->
             <div class="flex items-center gap-2">
               <input
-                v-model="customErrorCodeInput"
+                v-model.number="customErrorCodeInput"
                 type="number"
                 min="100"
                 max="599"
@@ -356,14 +324,7 @@
                   @click="removeErrorCode(code)"
                   class="hover:text-red-900 dark:hover:text-red-300"
                 >
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
+                  <Icon name="x" size="sm" :stroke-width="2" />
                 </button>
               </span>
               <span v-if="selectedErrorCodes.length === 0" class="text-xs text-gray-400">
@@ -400,6 +361,154 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Temp Unschedulable Rules -->
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.tempUnschedulable.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.tempUnschedulable.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="tempUnschedEnabled = !tempUnschedEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              tempUnschedEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                tempUnschedEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+
+        <div v-if="tempUnschedEnabled" class="space-y-3">
+          <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <p class="text-xs text-blue-700 dark:text-blue-400">
+              <Icon name="exclamationTriangle" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.tempUnschedulable.notice') }}
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="preset in tempUnschedPresets"
+              :key="preset.label"
+              type="button"
+              @click="addTempUnschedRule(preset.rule)"
+              class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+            >
+              + {{ preset.label }}
+            </button>
+          </div>
+
+          <div v-if="tempUnschedRules.length > 0" class="space-y-3">
+            <div
+              v-for="(rule, index) in tempUnschedRules"
+              :key="index"
+              class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+            >
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.tempUnschedulable.ruleIndex', { index: index + 1 }) }}
+                </span>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    :disabled="index === 0"
+                    @click="moveTempUnschedRule(index, -1)"
+                    class="rounded p-1 text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-gray-200"
+                  >
+                    <Icon name="chevronUp" size="sm" :stroke-width="2" />
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="index === tempUnschedRules.length - 1"
+                    @click="moveTempUnschedRule(index, 1)"
+                    class="rounded p-1 text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-gray-200"
+                  >
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    @click="removeTempUnschedRule(index)"
+                    class="rounded p-1 text-red-500 transition-colors hover:text-red-600"
+                  >
+                    <Icon name="x" size="sm" :stroke-width="2" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.errorCode') }}</label>
+                  <input
+                    v-model.number="rule.error_code"
+                    type="number"
+                    min="100"
+                    max="599"
+                    class="input"
+                    :placeholder="t('admin.accounts.tempUnschedulable.errorCodePlaceholder')"
+                  />
+                </div>
+                <div>
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.durationMinutes') }}</label>
+                  <input
+                    v-model.number="rule.duration_minutes"
+                    type="number"
+                    min="1"
+                    class="input"
+                    :placeholder="t('admin.accounts.tempUnschedulable.durationPlaceholder')"
+                  />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.keywords') }}</label>
+                  <input
+                    v-model="rule.keywords"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.accounts.tempUnschedulable.keywordsPlaceholder')"
+                  />
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.keywordsHint') }}</p>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.description') }}</label>
+                  <input
+                    v-model="rule.description"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.accounts.tempUnschedulable.descriptionPlaceholder')"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            @click="addTempUnschedRule()"
+            class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
+          >
+            <svg
+              class="mr-1 inline h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            {{ t('admin.accounts.tempUnschedulable.addRule') }}
+          </button>
         </div>
       </div>
 
@@ -447,23 +556,111 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.priority') }}</label>
-          <input v-model.number="form.priority" type="number" min="1" class="input" />
+          <input
+            v-model.number="form.priority"
+            type="number"
+            min="1"
+            class="input"
+            data-tour="account-form-priority"
+          />
         </div>
+      </div>
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
+        <input v-model="expiresAtInput" type="datetime-local" class="input" />
+        <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
       </div>
 
       <div>
-        <label class="input-label">{{ t('common.status') }}</label>
-        <Select v-model="form.status" :options="statusOptions" />
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{
+              t('admin.accounts.autoPauseOnExpired')
+            }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="autoPauseOnExpired = !autoPauseOnExpired"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                autoPauseOnExpired ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
       </div>
 
-      <!-- Group Selection -->
-      <GroupSelector v-model="form.group_ids" :groups="groups" :platform="account?.platform" />
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div>
+          <label class="input-label">{{ t('common.status') }}</label>
+          <Select v-model="form.status" :options="statusOptions" />
+        </div>
 
-      <div class="flex justify-end gap-3 pt-4">
+        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
+        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
+          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+            <input
+              type="checkbox"
+              v-model="mixedScheduling"
+              disabled
+              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+            />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.mixedScheduling') }}
+            </span>
+          </label>
+          <div class="group relative">
+            <span
+              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+            >
+              ?
+            </span>
+            <!-- Tooltip（向下显示避免被弹窗裁剪） -->
+            <div
+              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
+            >
+              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              <div
+                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Selection - 仅标准模式显示 -->
+      <GroupSelector
+        v-if="!authStore.isSimpleMode"
+        v-model="form.group_ids"
+        :groups="groups"
+        :platform="account?.platform"
+        :mixed-scheduling="mixedScheduling"
+        data-tour="account-form-groups"
+      />
+
+    </form>
+
+    <template #footer>
+      <div v-if="account" class="flex justify-end gap-3">
         <button @click="handleClose" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
-        <button type="submit" :disabled="submitting" class="btn btn-primary">
+        <button
+          type="submit"
+          form="edit-account-form"
+          :disabled="submitting"
+          class="btn btn-primary"
+          data-tour="account-form-submit"
+        >
           <svg
             v-if="submitting"
             class="-ml-1 mr-2 h-4 w-4 animate-spin"
@@ -487,20 +684,29 @@
           {{ submitting ? t('admin.accounts.updating') : t('common.update') }}
         </button>
       </div>
-    </form>
-  </Modal>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import type { Account, Proxy, Group } from '@/types'
-import Modal from '@/components/common/Modal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
+import {
+  getPresetMappingsByPlatform,
+  commonErrorCodes,
+  buildModelMappingObject
+} from '@/composables/useModelWhitelist'
 
 interface Props {
   show: boolean
@@ -517,11 +723,27 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+
+// Platform-specific hint for Base URL
+const baseUrlHint = computed(() => {
+  if (!props.account) return t('admin.accounts.baseUrlHint')
+  if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  return t('admin.accounts.baseUrlHint')
+})
 
 // Model mapping type
 interface ModelMapping {
   from: string
   to: string
+}
+
+interface TempUnschedRuleForm {
+  error_code: number | null
+  keywords: string
+  duration_minutes: number | null
+  description: string
 }
 
 // State
@@ -535,168 +757,42 @@ const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const interceptWarmupRequests = ref(false)
-
-// Common models for whitelist - Anthropic
-const anthropicModels = [
-  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-  { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
-  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' }
-]
-
-// Common models for whitelist - OpenAI
-const openaiModels = [
-  { value: 'gpt-5.2-2025-12-11', label: 'GPT-5.2' },
-  { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
-  { value: 'gpt-5.1-codex', label: 'GPT-5.1 Codex' },
-  { value: 'gpt-5.1-2025-11-13', label: 'GPT-5.1' },
-  { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini' },
-  { value: 'gpt-5-2025-08-07', label: 'GPT-5' }
-]
-
-// Common models for whitelist - Gemini
-const geminiModels = [
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-  { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-  { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-  { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' }
-]
-
-// Computed: current models based on platform
-const commonModels = computed(() => {
-  if (props.account?.platform === 'openai') return openaiModels
-  if (props.account?.platform === 'gemini') return geminiModels
-  return anthropicModels
-})
-
-// Preset mappings for quick add - Anthropic
-const anthropicPresetMappings = [
-  {
-    label: 'Sonnet 4',
-    from: 'claude-sonnet-4-20250514',
-    to: 'claude-sonnet-4-20250514',
-    color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-  },
-  {
-    label: 'Sonnet 4.5',
-    from: 'claude-sonnet-4-5-20250929',
-    to: 'claude-sonnet-4-5-20250929',
-    color:
-      'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400'
-  },
-  {
-    label: 'Opus 4.5',
-    from: 'claude-opus-4-5-20251101',
-    to: 'claude-opus-4-5-20251101',
-    color:
-      'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
-  },
-  {
-    label: 'Haiku 3.5',
-    from: 'claude-3-5-haiku-20241022',
-    to: 'claude-3-5-haiku-20241022',
-    color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-  },
-  {
-    label: 'Haiku 4.5',
-    from: 'claude-haiku-4-5-20251001',
-    to: 'claude-haiku-4-5-20251001',
-    color:
-      'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
-  },
-  {
-    label: 'Opus->Sonnet',
-    from: 'claude-opus-4-5-20251101',
-    to: 'claude-sonnet-4-5-20250929',
-    color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
-  }
-]
-
-// Preset mappings for quick add - OpenAI
-const openaiPresetMappings = [
-  {
-    label: 'GPT-5.2',
-    from: 'gpt-5.2-2025-12-11',
-    to: 'gpt-5.2-2025-12-11',
-    color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-  },
-  {
-    label: 'GPT-5.2 Codex',
-    from: 'gpt-5.2-codex',
-    to: 'gpt-5.2-codex',
-    color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-  },
-  {
-    label: 'GPT-5.1 Codex',
-    from: 'gpt-5.1-codex',
-    to: 'gpt-5.1-codex',
-    color:
-      'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400'
-  },
-  {
-    label: 'Codex Max',
-    from: 'gpt-5.1-codex-max',
-    to: 'gpt-5.1-codex-max',
-    color:
-      'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
-  },
-  {
-    label: 'Codex Mini',
-    from: 'gpt-5.1-codex-mini',
-    to: 'gpt-5.1-codex-mini',
-    color:
-      'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
-  },
-  {
-    label: 'Max->Codex',
-    from: 'gpt-5.1-codex-max',
-    to: 'gpt-5.1-codex',
-    color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
-  }
-]
-
-// Preset mappings for quick add - Gemini
-const geminiPresetMappings = [
-  {
-    label: 'Flash',
-    from: 'gemini-2.0-flash',
-    to: 'gemini-2.0-flash',
-    color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-  },
-  {
-    label: 'Flash Lite',
-    from: 'gemini-2.0-flash-lite',
-    to: 'gemini-2.0-flash-lite',
-    color:
-      'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400'
-  },
-  {
-    label: '1.5 Pro',
-    from: 'gemini-1.5-pro',
-    to: 'gemini-1.5-pro',
-    color:
-      'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
-  },
-  {
-    label: '1.5 Flash',
-    from: 'gemini-1.5-flash',
-    to: 'gemini-1.5-flash',
-    color:
-      'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-]
+const autoPauseOnExpired = ref(false)
+const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
+const tempUnschedEnabled = ref(false)
+const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => {
-  if (props.account?.platform === 'openai') return openaiPresetMappings
-  if (props.account?.platform === 'gemini') return geminiPresetMappings
-  return anthropicPresetMappings
-})
+const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
+const tempUnschedPresets = computed(() => [
+  {
+    label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
+    rule: {
+      error_code: 529,
+      keywords: 'overloaded, too many',
+      duration_minutes: 60,
+      description: t('admin.accounts.tempUnschedulable.presets.overloadDesc')
+    }
+  },
+  {
+    label: t('admin.accounts.tempUnschedulable.presets.rateLimitLabel'),
+    rule: {
+      error_code: 429,
+      keywords: 'rate limit, too many requests',
+      duration_minutes: 10,
+      description: t('admin.accounts.tempUnschedulable.presets.rateLimitDesc')
+    }
+  },
+  {
+    label: t('admin.accounts.tempUnschedulable.presets.unavailableLabel'),
+    rule: {
+      error_code: 503,
+      keywords: 'unavailable, maintenance',
+      duration_minutes: 30,
+      description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc')
+    }
+  }
+])
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
@@ -705,24 +801,15 @@ const defaultBaseUrl = computed(() => {
   return 'https://api.anthropic.com'
 })
 
-// Common HTTP error codes for quick selection
-const commonErrorCodes = [
-  { value: 401, label: 'Unauthorized' },
-  { value: 403, label: 'Forbidden' },
-  { value: 429, label: 'Rate Limit' },
-  { value: 500, label: 'Server Error' },
-  { value: 502, label: 'Bad Gateway' },
-  { value: 503, label: 'Unavailable' },
-  { value: 529, label: 'Overloaded' }
-]
-
 const form = reactive({
   name: '',
+  notes: '',
   proxy_id: null as number | null,
   concurrency: 1,
   priority: 1,
   status: 'active' as 'active' | 'inactive',
-  group_ids: [] as number[]
+  group_ids: [] as number[],
+  expires_at: null as number | null
 })
 
 const statusOptions = computed(() => [
@@ -730,21 +817,37 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
+const expiresAtInput = computed({
+  get: () => formatDateTimeLocal(form.expires_at),
+  set: (value: string) => {
+    form.expires_at = parseDateTimeLocal(value)
+  }
+})
+
 // Watchers
 watch(
   () => props.account,
   (newAccount) => {
     if (newAccount) {
       form.name = newAccount.name
+      form.notes = newAccount.notes || ''
       form.proxy_id = newAccount.proxy_id
       form.concurrency = newAccount.concurrency
       form.priority = newAccount.priority
       form.status = newAccount.status as 'active' | 'inactive'
       form.group_ids = newAccount.group_ids || []
+      form.expires_at = newAccount.expires_at ?? null
 
       // Load intercept warmup requests setting (applies to all account types)
       const credentials = newAccount.credentials as Record<string, unknown> | undefined
       interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
+      autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
+
+      // Load mixed scheduling setting (only for antigravity accounts)
+      const extra = newAccount.extra as Record<string, unknown> | undefined
+      mixedScheduling.value = extra?.mixed_scheduling === true
+
+      loadTempUnschedRules(credentials)
 
       // Initialize API Key fields for apikey type
       if (newAccount.type === 'apikey' && newAccount.credentials) {
@@ -833,6 +936,16 @@ const addPresetMapping = (from: string, to: string) => {
 const toggleErrorCode = (code: number) => {
   const index = selectedErrorCodes.value.indexOf(code)
   if (index === -1) {
+    // Adding code - check for 429/529 warning
+    if (code === 429) {
+      if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+        return
+      }
+    } else if (code === 529) {
+      if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+        return
+      }
+    }
     selectedErrorCodes.value.push(code)
   } else {
     selectedErrorCodes.value.splice(index, 1)
@@ -850,6 +963,16 @@ const addCustomErrorCode = () => {
     appStore.showInfo(t('admin.accounts.errorCodeExists'))
     return
   }
+  // Check for 429/529 warning
+  if (code === 429) {
+    if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+      return
+    }
+  } else if (code === 529) {
+    if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+      return
+    }
+  }
   selectedErrorCodes.value.push(code)
   customErrorCodeInput.value = null
 }
@@ -862,27 +985,132 @@ const removeErrorCode = (code: number) => {
   }
 }
 
-const buildModelMappingObject = (): Record<string, string> | null => {
-  const mapping: Record<string, string> = {}
+const addTempUnschedRule = (preset?: TempUnschedRuleForm) => {
+  if (preset) {
+    tempUnschedRules.value.push({ ...preset })
+    return
+  }
+  tempUnschedRules.value.push({
+    error_code: null,
+    keywords: '',
+    duration_minutes: 30,
+    description: ''
+  })
+}
 
-  if (modelRestrictionMode.value === 'whitelist') {
-    // Whitelist mode: model maps to itself
-    for (const model of allowedModels.value) {
-      mapping[model] = model
+const removeTempUnschedRule = (index: number) => {
+  tempUnschedRules.value.splice(index, 1)
+}
+
+const moveTempUnschedRule = (index: number, direction: number) => {
+  const target = index + direction
+  if (target < 0 || target >= tempUnschedRules.value.length) return
+  const rules = tempUnschedRules.value
+  const current = rules[index]
+  rules[index] = rules[target]
+  rules[target] = current
+}
+
+const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
+  const out: Array<{
+    error_code: number
+    keywords: string[]
+    duration_minutes: number
+    description: string
+  }> = []
+
+  for (const rule of rules) {
+    const errorCode = Number(rule.error_code)
+    const duration = Number(rule.duration_minutes)
+    const keywords = splitTempUnschedKeywords(rule.keywords)
+    if (!Number.isFinite(errorCode) || errorCode < 100 || errorCode > 599) {
+      continue
     }
-  } else {
-    // Mapping mode: use the mapping entries
-    for (const m of modelMappings.value) {
-      const from = m.from.trim()
-      const to = m.to.trim()
-      if (from && to) {
-        mapping[from] = to
-      }
+    if (!Number.isFinite(duration) || duration <= 0) {
+      continue
     }
+    if (keywords.length === 0) {
+      continue
+    }
+    out.push({
+      error_code: Math.trunc(errorCode),
+      keywords,
+      duration_minutes: Math.trunc(duration),
+      description: rule.description.trim()
+    })
   }
 
-  return Object.keys(mapping).length > 0 ? mapping : null
+  return out
 }
+
+const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
+  if (!tempUnschedEnabled.value) {
+    delete credentials.temp_unschedulable_enabled
+    delete credentials.temp_unschedulable_rules
+    return true
+  }
+
+  const rules = buildTempUnschedRules(tempUnschedRules.value)
+  if (rules.length === 0) {
+    appStore.showError(t('admin.accounts.tempUnschedulable.rulesInvalid'))
+    return false
+  }
+
+  credentials.temp_unschedulable_enabled = true
+  credentials.temp_unschedulable_rules = rules
+  return true
+}
+
+function loadTempUnschedRules(credentials?: Record<string, unknown>) {
+  tempUnschedEnabled.value = credentials?.temp_unschedulable_enabled === true
+  const rawRules = credentials?.temp_unschedulable_rules
+  if (!Array.isArray(rawRules)) {
+    tempUnschedRules.value = []
+    return
+  }
+
+  tempUnschedRules.value = rawRules.map((rule) => {
+    const entry = rule as Record<string, unknown>
+    return {
+      error_code: toPositiveNumber(entry.error_code),
+      keywords: formatTempUnschedKeywords(entry.keywords),
+      duration_minutes: toPositiveNumber(entry.duration_minutes),
+      description: typeof entry.description === 'string' ? entry.description : ''
+    }
+  })
+}
+
+function formatTempUnschedKeywords(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .join(', ')
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  return ''
+}
+
+const splitTempUnschedKeywords = (value: string) => {
+  return value
+    .split(/[,;]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
+function toPositiveNumber(value: unknown) {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) {
+    return null
+  }
+  return Math.trunc(num)
+}
+
+const formatDateTimeLocal = formatDateTimeLocalInput
+const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
@@ -895,12 +1123,20 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     const updatePayload: Record<string, unknown> = { ...form }
+    // 后端期望 proxy_id: 0 表示清除代理，而不是 null
+    if (updatePayload.proxy_id === null) {
+      updatePayload.proxy_id = 0
+    }
+    if (form.expires_at === null) {
+      updatePayload.expires_at = 0
+    }
+    updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const modelMapping = buildModelMappingObject()
+      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
@@ -935,6 +1171,10 @@ const handleSubmit = async () => {
       if (interceptWarmupRequests.value) {
         newCredentials.intercept_warmup_requests = true
       }
+      if (!applyTempUnschedConfig(newCredentials)) {
+        submitting.value = false
+        return
+      }
 
       updatePayload.credentials = newCredentials
     } else {
@@ -947,8 +1187,24 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.intercept_warmup_requests
       }
+      if (!applyTempUnschedConfig(newCredentials)) {
+        submitting.value = false
+        return
+      }
 
       updatePayload.credentials = newCredentials
+    }
+
+    // For antigravity accounts, handle mixed_scheduling in extra
+    if (props.account.platform === 'antigravity') {
+      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (mixedScheduling.value) {
+        newExtra.mixed_scheduling = true
+      } else {
+        delete newExtra.mixed_scheduling
+      }
+      updatePayload.extra = newExtra
     }
 
     await adminAPI.accounts.update(props.account.id, updatePayload)
@@ -956,7 +1212,7 @@ const handleSubmit = async () => {
     emit('updated')
     handleClose()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
   } finally {
     submitting.value = false
   }
